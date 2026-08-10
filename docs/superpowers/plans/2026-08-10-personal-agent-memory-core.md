@@ -6,7 +6,7 @@
 
 **Architecture:** A Bun-managed monorepo with three packages. `packages/agent` is the eve app (custom `defineChannel` Discord intake, `innernet` MCP connection, two preprocessing tools). `packages/connector` is a zero-dependency sidecar that talks to Discord's gateway outbound and feeds normalized messages (text + base64 files) to the intake route over loopback. `packages/shared` holds pure helpers compiled to `dist` and imported by both. The agent server may need to run under Node 24 (eve's engine requirement); the connector runs natively on Bun.
 
-**Tech Stack:** Bun 1.x (workspaces, scripts, install, lockfile), TypeScript, eve ^0.31.3, zod 4.x, ai SDK v7, Docker + PostgreSQL (@workflow/world-postgres for prod), innernet MCP, Discord gateway/API v10, Node 24 (eve runtime only).
+**Tech Stack:** Bun 1.x (workspaces, scripts, install, lockfile), TypeScript, eve ^0.31.3, zod 4.x, ai SDK v7, PostgreSQL (@workflow/world-postgres for prod; local world by default), innernet MCP, Discord gateway/API v10, Node 24 (eve runtime only).
 
 ## Global Constraints
 
@@ -39,10 +39,6 @@ Ei/
 │   ├── eval-ci.sh             # strict eval gate (evals deferred; script wired) — T6
 │   └── check-innernet-manifest.sh  # manifest gate — T2
 ├── docs/superpowers/…         # spec + plan (existing)
-├── docker/
-│   ├── Dockerfile.agent       # node runtime image — T6
-│   └── Dockerfile.connector   # bun runtime image — T6
-├── docker-compose.yml         # db + agent + connector — T6
 └── packages/
     ├── shared/                # @ei/shared
     │   ├── package.json       # exports ./dist; scripts build/typecheck — T1
@@ -689,7 +685,7 @@ const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 export default defineChannel({
   routes: [
-    POST("/discord/intake", async (request, { from }) => {
+    POST("/intake", async (request, { from }) => {
       if (request.headers.get("x-eve-connector-secret") !== process.env.EVE_CONNECTOR_SECRET) {
         return new Response("forbidden", { status: 403 });
       }
@@ -728,14 +724,14 @@ export default defineChannel({
 
   events: {
     "message.completed"(eventData, channel) {
-      const addr = decodeToken(channel.continuation.token);
+      const addr = channel.continuation ? decodeToken(channel.continuation.token) : null;
       if (!addr) return;
-      const message: string | undefined = eventData.message;
+      const message: string | null = eventData.message;
       if (!message) return;
       void deliverToDiscord(addr, message);
     },
     "turn.started"(_eventData, channel) {
-      const addr = decodeToken(channel.continuation.token);
+      const addr = channel.continuation ? decodeToken(channel.continuation.token) : null;
       if (!addr) return;
       void startTyping(addr);
     },
@@ -792,7 +788,11 @@ async function rateLimited(promise: Promise<Response>): Promise<Response> {
 }
 ```
 
-Route path note: this file names a `POST` at `/discord/intake`; the eve server may mount custom channel routes under a prefix (e.g. `/eve/v1/…`). **Capture the actual external path** in the next step from `eve info` (grep the route), then set `EVE_INTAKE_PATH` in `.env.example`/`.env.local` and in `connector` (Task 5) to the full external path (default `/eve/v1/discord/intake`). If the mounted path differs, adjust the constant in one place only: `.env` (the connector reads it).
+Route path note (measured 2026-08-10): custom channel routes mount **bare** —
+`POST /intake` is served at exactly that path with no `/eve/v1` prefix
+(built-in channels bake their own full paths; custom ones don't).
+`EVE_INTAKE_PATH=/intake` is set in `.env.example` (Task 1). Re-confirm by
+booting and probing `/intake` after eve upgrades.
 
 - [ ] **Step 3: Build, typecheck, and record the route**
 
@@ -825,7 +825,7 @@ git commit -m "feat: add custom Discord intake channel with owner gate"
 
 **Interfaces:**
 - Consumes: Task 4 intake route (`EVE_INTAKE_PATH`), Task 1 `.env`, `@ei/shared` (for `mapMessageCreate` inputs if reused; connector keeps normalization local).
-- Produces: `DiscordGateway` class (`start`/`stop`) and `mapMessageCreate(d, ownerId)` from `gateway.ts`; a long-lived sidecar (`bun src/index.ts`) that streams Discord messages into the intake route. Bundled to a single file via `bun build` for the container (Task 6).
+- Produces: `DiscordGateway` class (`start`/`stop`) and `mapMessageCreate(d, ownerId)` from `gateway.ts`; a long-lived sidecar (`bun src/index.ts`) that streams Discord messages into the intake route. Bundled to a single file via `bun build` for the connector process (Task 6).
 
 Rationale (recorded for the reviewer): eve channels are route/event adapters; a Discord gateway client is an outbound long-lived connection. A tiny sidecar keeps the gateway lifecycle out of the eve server process. It runs natively on Bun (built-in WebSocket) and connects out, so no public inbound is required.
 
@@ -1016,7 +1016,7 @@ const token = process.env.DISCORD_BOT_TOKEN ?? "";
 const ownerId = process.env.AGENT_OWNER_DISCORD_ID ?? "";
 const secret = process.env.EVE_CONNECTOR_SECRET ?? "";
 const runtimeUrl = process.env.EVE_RUNTIME_URL ?? "http://127.0.0.1:3000";
-const intakePath = process.env.EVE_INTAKE_PATH ?? "/eve/v1/discord/intake";
+const intakePath = process.env.EVE_INTAKE_PATH ?? "/intake";
 
 if (!token || !ownerId || !secret) {
   console.error("DISCORD_BOT_TOKEN, AGENT_OWNER_DISCORD_ID, and EVE_CONNECTOR_SECRET are required");
@@ -1110,15 +1110,20 @@ git commit -m "feat: add join Discord gateway connector (bun, zero-dep)"
 
 ---
 
-### Task 6: Packaging, runbook, and deferred-test backlog
+### Task 6: Production run, runbook, and deferred-test backlog
+
+> Redirect (2026-08-10): **no Docker.** The agent runs via `eve start` under a
+> process manager (systemd), the connector via `bun dist/index.js`, and
+> Postgres is the operator's own server (`@workflow/world-postgres` connects
+> to it through `WORKFLOW_POSTGRES_URL`).
 
 **Files:**
-- Create: `docker/Dockerfile.agent`, `docker/Dockerfile.connector`, `docker-compose.yml`, `scripts/eval-ci.sh`, `README.md`
-- Modify: `packages/agent/agent/agent.ts` (Postgres world), `.env.example` (world vars)
+- Create: `scripts/eval-ci.sh`, `README.md`
+- Modify: `packages/agent/agent/agent.ts` (Postgres world), `packages/agent/.env.example` (world vars)
 
 **Interfaces:**
 - Consumes: Tasks 1-5 artifacts; `node_modules/eve/docs/guides/deployment/self-hosting.md` (committed with the dependency).
-- Produces: `docker compose up -d --build` runs `db` + `agent` + `connector`; `curl http://localhost:3000/eve/v1/health` answers; runbook documents env, health check, upgrade path, and the deferred test backlog.
+- Produces: a production server (`bun run build` then `bunx eve start`) answering `curl http://127.0.0.1:3000/eve/v1/health`; systemd unit examples for `agent` and `connector`; runbook documents env, health check, upgrade path, and the deferred test backlog.
 
 - [ ] **Step 1: Postgres world for production**
 
@@ -1146,121 +1151,76 @@ export default defineAgent({
 
 Read `node_modules/@workflow/world-postgres/README*` for the exact env var name(s) (connection string / pooling) and document them in `packages/agent/.env.example` under a `# postgres world (production only)` section. Local dev without those env vars uses the local world.
 
-- [ ] **Step 2: Agent image**
+- [ ] **Step 2: Verify the production start path**
 
-Create `docker/Dockerfile.agent` (Bun for build, Node 24 for the runtime, since eve runs on Node):
+Run the server the same way production will (`eve start`, not plain `node`):
 
-```dockerfile
-FROM oven/bun:1 AS build
-WORKDIR /app
-COPY package.json bun.lock* ./
-COPY packages/agent/package.json packages/agent/package.json
-COPY packages/shared/package.json packages/shared/package.json
-COPY packages/connector/package.json packages/connector/package.json
-RUN bun install --frozen-lockfile
-COPY . .
-RUN cd packages/shared && bun run build && cd ../.. \
- && cd packages/agent && bun run build
-
-FROM node:24-slim
-WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=build /app/package.json /app/bun.lock* ./
-COPY --from=build /app/packages /app/packages
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/packages/agent/.output ./packages/agent/.output
-CMD ["node", "packages/agent/.output/server/index.mjs"]
+```bash
+cd /root/dev/projects/Ei/packages/agent
+bun run build
+bunx eve start > /tmp/eve-start.log 2>&1 &
+sleep 10
+curl -fsS http://127.0.0.1:3000/eve/v1/health
 ```
 
-Note: verify the Nitro entry under `packages/agent/.output/server/` after `eve build` (it is typically `index.mjs`); adjust `CMD` if the filename differs. The runtime image only needs the agent's `node_modules` (hoisted at root by Bun) plus `.output`.
+**Runtime rule (measured 2026-08-10):** start with `eve start`, never
+`node .output/server/index.mjs` directly — eve's loader resolves framework
+packages out of Bun's `.bun/` store, and plain Node fails with
+`ERR_MODULE_NOT_FOUND` (observed: `undici`).
 
-- [ ] **Step 3: Connector image and compose**
+- [ ] **Step 3: Process management (systemd)**
 
-Create `docker/Dockerfile.connector`:
+Two units; systemd restarts on crash and starts at boot. Adjust `User=`,
+paths, and `EnvironmentFile` (one env file for both services is fine; put it
+next to the repo, gitignored).
 
-```dockerfile
-FROM oven/bun:1 AS build
-WORKDIR /app
-COPY packages/connector/package.json packages/connector/package.json
-COPY packages/shared/package.json packages/shared/package.json
-COPY packages/shared/src ./packages/shared/src
-COPY packages/connector/src ./packages/connector/src
-RUN cd packages/connector && bun install && bun run build
+`/etc/systemd/system/ei-agent.service`:
 
-FROM oven/bun:1
-WORKDIR /app
-COPY --from=build /app/packages/connector/dist ./dist
-CMD ["bun", "dist/index.js"]
+```ini
+[Unit]
+Description=ei personal agent (eve)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=youruser
+WorkingDirectory=/home/youruser/Ei/packages/agent
+EnvironmentFile=/home/youruser/Ei/.env.production
+ExecStartPre=/home/youruser/.bun/bin/bun run build
+ExecStart=/home/youruser/.bun/bin/bunx eve start
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
 ```
 
-Create `docker-compose.yml` (repo root; compose resolves relative `dockerfile:` paths under `docker/`):
+`/etc/systemd/system/ei-connector.service`:
 
-```yaml
-services:
-  db:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ei
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
-      POSTGRES_DB: ei
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ei -d ei"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
+```ini
+[Unit]
+Description=ei discord connector
+After=network-online.target
+Wants=network-online.target
 
-  agent:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.agent
-    restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      AI_GATEWAY_API_KEY: ${AI_GATEWAY_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      INNERNET_KEY: ${INNERNET_KEY:?set INNERNET_KEY}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:?set DISCORD_BOT_TOKEN}
-      AGENT_OWNER_DISCORD_ID: ${AGENT_OWNER_DISCORD_ID:?set AGENT_OWNER_DISCORD_ID}
-      EVE_CONNECTOR_SECRET: ${EVE_CONNECTOR_SECRET:?set EVE_CONNECTOR_SECRET}
-      # match @workflow/world-postgres env names from its README:
-      POSTGRES_URL: postgres://ei:${POSTGRES_PASSWORD}@db:5432/ei
-      PORT: 3000
-      HOSTNAME: 0.0.0.0
-      EVE_SANDBOX: docker
-    expose:
-      - "3000"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/eve/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
+[Service]
+Type=simple
+User=youruser
+WorkingDirectory=/home/youruser/Ei/packages/connector
+EnvironmentFile=/home/youruser/Ei/.env.production
+ExecStartPre=/home/youruser/.bun/bin/bun run build
+ExecStart=/home/youruser/.bun/bin/bun dist/index.js
+Restart=always
+RestartSec=5
 
-  connector:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.connector
-    restart: unless-stopped
-    depends_on:
-      agent:
-        condition: service_healthy
-    environment:
-      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:?set DISCORD_BOT_TOKEN}
-      AGENT_OWNER_DISCORD_ID: ${AGENT_OWNER_DISCORD_ID:?set AGENT_OWNER_DISCORD_ID}
-      EVE_CONNECTOR_SECRET: ${EVE_CONNECTOR_SECRET:?set EVE_CONNECTOR_SECRET}
-      EVE_RUNTIME_URL: http://agent:3000
-      EVE_INTAKE_PATH: ${EVE_INTAKE_PATH:-/eve/v1/discord/intake}
-
-volumes:
-  pgdata:
+[Install]
+WantedBy=multi-user.target
 ```
+
+Postgres note: host Postgres on the same box (or wherever) and set
+`WORKFLOW_POSTGRES_URL` in the env file; leave it unset only for local dev
+(the local world).
 
 - [ ] **Step 4: Eval gate script (deferred tests)**
 
@@ -1269,27 +1229,26 @@ Create `scripts/eval-ci.sh` (wired now; the suite files are created when tests a
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(dirname "$0")/.."
-bunx --cwd packages/agent eve eval --strict --junit .eve/junit.xml "$@"
+cd "$(dirname "$0")/../packages/agent"
+bunx eve eval --strict --junit .eve/junit.xml "$@"
 ```
 
 Add to `README.md` under "Deferred tests" the required backlog from the spec (§6): unit tests for `nets`/`discord-util`/preprocessing, and the eval suite (`memory-remember-recall`, `memory-no-fabrication`, `memory-citation`, `memory-pdf-capture`) — all mandatory before production cutover, with the exact eval run command.
 
-- [ ] **Step 5: Build and health check**
+- [ ] **Step 5: Full-stack smoke (no containers)**
 
-```bash
-cd /root/dev/projects/Ei
-docker compose config           # validates interpolation; env vars must be set or composed
-docker compose up -d --build
-docker compose ps               # db healthy, agent healthy, connector running
-curl -fsS http://127.0.0.1:3000/eve/v1/health
-```
+With production env in place from Step 2:
 
-Then repeat the Task 5 manual end-to-end steps against the containerized deployment.
+1. `cd /root/dev/projects/Ei/packages/agent && bun run build && bunx eve start > /tmp/eve-start.log 2>&1 &`
+2. `cd /root/dev/projects/Ei/packages/connector && bun --env-file=../agent/.env.production src/index.ts > /tmp/connector.log 2>&1 &` (or set the same env directly)
+3. `curl -fsS http://127.0.0.1:3000/eve/v1/health`
+4. Repeat the Task 5 manual end-to-end steps against this running server.
+
+Then tear down both processes and finish the runbook.
 
 - [ ] **Step 6: Write the runbook**
 
-Create `README.md` with: project summary (memory core slice); the architecture diagram from the spec §3 (text form); the env table below; quick start (local: `bun install`, `cp packages/agent/.env.example packages/agent/.env.local`, fill keys, `bun run dev:agent`; server: `docker compose up -d --build`); health check; how to run evals (`./scripts/eval-ci.sh`); upgrade path (pin eve + `@workflow/*` line, read release notes); the runtime note (Bun tools, Node 24 for the agent server per the Task 1 spike); privacy note (innernet + model APIs are third parties); and the Deferred-tests section from Step 4.
+Create `README.md` with: project summary (memory core slice); the architecture diagram from the spec §3 (text form); the env table below; quick start (local: `bun install`, `cp packages/agent/.env.example packages/agent/.env.local`, fill keys, `bun run dev:agent`; server: `bun run build` then `bunx eve start` under systemd per Step 3); health check; how to run evals (`./scripts/eval-ci.sh`); upgrade path (pin eve + `@workflow/*` line, read release notes); the runtime note (Bun tooling, Node 24 for the agent server per the Task 1 spike); privacy note (innernet + model APIs are third parties); and the Deferred-tests section from Step 4.
 
 Env table for README:
 
@@ -1302,9 +1261,9 @@ Env table for README:
 | `DISCORD_APPLICATION_ID` | yes | Application id (invite / intents portal) |
 | `AGENT_OWNER_DISCORD_ID` | yes | Single owner; everyone else is dropped |
 | `EVE_CONNECTOR_SECRET` | yes | Shared secret for the loopback intake route |
-| `EVE_RUNTIME_URL` | optional | `http://agent:3000` in compose; `http://127.0.0.1:3000` local |
-| `EVE_INTAKE_PATH` | optional | Full intake route from `eve info` (default `/eve/v1/discord/intake`) |
-| `POSTGRES_PASSWORD` + world vars | prod | Postgres durable state (`@workflow/world-postgres`) |
+| `EVE_RUNTIME_URL` | optional | `http://127.0.0.1:3000` (agent base URL) |
+| `EVE_INTAKE_PATH` | optional | Intake route (default `/intake`) |
+| `WORKFLOW_POSTGRES_URL` | prod | Postgres connection string (`@workflow/world-postgres`); unset = local world |
 | `PORT` | optional | Default 3000 |
 
 - [ ] **Step 7: Final gate and commit**
@@ -1313,12 +1272,11 @@ Env table for README:
 cd /root/dev/projects/Ei
 bun run typecheck
 git check-ignore packages/agent/.env.local
-docker compose config >/dev/null   # if docker available
 git add -A
-git commit -m "chore: containerize, runbook, and wire eval gate"
+git commit -m "chore: document production run, runbook, and eval gate"
 ```
 
-Expected: typecheck green, env ignored, compose config valid, commit succeeds.
+Expected: typecheck green, env ignored, commit succeeds.
 
 ---
 
@@ -1326,5 +1284,5 @@ Expected: typecheck green, env ignored, compose config valid, commit succeeds.
 
 - **Spec coverage:** custom Discord channel + connector (Tasks 4-5) match spec §3.1-3.2; innernet MCP connection (Task 2) matches §3.3; tools (Task 3) match §3.4; instructions (Task 2) match §3.5; data flow capture/query (Tasks 2, 5 manual); error handling (10 MB cap, 2000 split, typing, owner gate, 429 backoff, gateway resume) in Tasks 4-5; deployment self-host / no public inbound / Postgres (Task 6); risks: innernet tool names (manifest gate Task 2), connector process model (sidecar rationale Task 5), MESSAGE_CONTENT intent (Task 5 prereqs), voice (transcribe_audio Task 3), capture noise (instructions Task 2). Deferred by user decision: spec §6 testing (evals + unit tests) recorded as backlog (Task 6).
 - **Placeholder scan:** no TBD/TODO. The only intentionally-open values are discovered at runtime and gated by scripts: `INNERNET_KEY` (env), innernet tool names (manifest script), `EVE_INTAKE_PATH` (route discovery step), `.output` entry name (Task 6 verification step).
-- **Type consistency:** `InboundMessage`/`InboundAttachment`/`mapMessageCreate` identical across gateway pull and index push; `DiscordAddress`/`encodeToken`/`decodeToken`/`splitReply` single-source in `@ei/shared`; `isPublicHttpUrl` in `@ei/shared` and consumed by `fetch_page`; `fetchPage.execute`/`transcribeAudio.execute` schemas match their call sites; all package names (`@ei/agent`, `@ei/connector`, `@ei/shared`) consistent across manifests, scripts, and Dockerfiles.
-- **Known to verify during implementation (flagged, not placeholders):** eve-under-Bun spike (Task 1 step 5); actual intake mount path (Task 4 step 3); `@ei/shared` bundling into eve build (Task 3 step 2); `@workflow/world-postgres` env names (Task 6 step 1); `.output/server` entry (Task 6 step 2).
+- **Type consistency:** `InboundMessage`/`InboundAttachment`/`mapMessageCreate` identical across gateway pull and index push; `DiscordAddress`/`encodeToken`/`decodeToken`/`splitReply` single-source in `@ei/shared`; `isPublicHttpUrl` in `@ei/shared` and consumed by `fetch_page`; `fetchPage.execute`/`transcribeAudio.execute` schemas match their call sites; all package names (`@ei/agent`, `@ei/connector`, `@ei/shared`) consistent across manifests and scripts.
+- **Known to verify during implementation (flagged, not placeholders):** eve-under-Bun spike (Task 1 step 5, outcome: bun tooling, Node runtime); actual intake mount path (Task 4 step 3, outcome: bare `/intake`); `@ei/shared` bundling into eve build (Task 3 step 2); `@workflow/world-postgres` env names (Task 6 step 1); `eve start` vs plain `node` runtime rule (Task 6 step 2).
