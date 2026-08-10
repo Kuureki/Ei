@@ -13,8 +13,7 @@
     "typecheck:agent": "bun run --cwd packages/agent typecheck",
     "typecheck:shared": "bun run --cwd packages/shared typecheck",
     "typecheck": "bun run typecheck:shared && bun run typecheck:agent",
-    "build:shared": "bun run --cwd packages/shared build",
-    "dev:connector": "bun run --cwd packages/connector dev"
+    "build:shared": "bun run --cwd packages/shared build"
   },
   "overrides": {
     "ai": "^7.0.38"

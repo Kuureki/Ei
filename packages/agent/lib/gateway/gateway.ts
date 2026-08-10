@@ -4,6 +4,7 @@ export interface GatewayConfig {
   intents: number;
   ownerId: string;
   onMessage: (msg: InboundMessage) => void;
+  onInteraction?: (interaction: InteractionEvent) => void;
   gatewayUrl?: string;
   log?: (line: string) => void;
 }
@@ -22,6 +23,24 @@ export interface InboundMessage {
   threadId?: string;
   text: string;
   attachments: InboundAttachment[];
+}
+
+export type InteractionKind = 2 | 4 | 5; // APPLICATION_COMMAND, AUTOCOMPLETE, MODAL_SUBMIT
+
+export interface InteractionEvent {
+  id: string;
+  type: InteractionKind;
+  token: string;
+  userId: string;
+  guildId?: string;
+  channelId: string;
+  data: {
+    name?: string;
+    custom_id?: string;
+    options?: unknown[];
+    components?: unknown;
+    resolved?: unknown;
+  };
 }
 
 const DEFAULT_GATEWAY_URL = "wss://gateway.discord.gg/?v=10&encoding=json";
