@@ -1,7 +1,5 @@
 node_modules
 .env*
-!.env.example
-!packages/**/.env.example
 .eve
 .vercel
 .next
