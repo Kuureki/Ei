@@ -1,9 +1,15 @@
 // Composio client + owner-scoped Tool Router session. Lazily constructed so
 // the agent boots (and tests copy the module) without a COMPOSIO_API_KEY.
 import { Composio, type SessionWithoutMcp } from "@composio/core";
-import { EveProvider } from "@composio/experimental/eve";
+import { EveProvider, requireApprovalForTools } from "@composio/experimental/eve";
+import { MUTATING_SLUGS } from "./tools/composio";
 
 export const COMPOSIO_OWNER_ID: string | undefined = process.env.AGENT_OWNER_DISCORD_ID;
+
+// Remote code-execution meta-tools are out of scope for this slice; deny them
+// before the model ever reaches the sandbox/workbench.
+const DENY_MESSAGE =
+  "COMPOSIO_REMOTE_BASH_TOOL and COMPOSIO_REMOTE_WORKBENCH are disabled on this agent.";
 
 export function getComposioSessionKey(
   env: Record<string, string | undefined> = process.env as Record<string, string | undefined>,
@@ -39,7 +45,21 @@ export function getComposioClient(
   if (!key) return null;
   if (!_client) {
     _client = new Composio({
-      provider: new EveProvider(),
+      provider: new EveProvider({
+        needsApproval: requireApprovalForTools(...MUTATING_SLUGS),
+        hooks: {
+          remoteBash: async () => ({
+            data: {},
+            error: DENY_MESSAGE,
+            successful: false,
+          }),
+          remoteWorkbench: async () => ({
+            data: {},
+            error: DENY_MESSAGE,
+            successful: false,
+          }),
+        },
+      }),
       apiKey: key,
     });
   }
