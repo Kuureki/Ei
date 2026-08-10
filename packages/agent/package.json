@@ -14,6 +14,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@ai-sdk/openai": "4.0.17",
     "@ei/shared": "workspace:*",
     "@vercel/connect": "0.4.3",
     "@workflow/world-postgres": "5.0.0-beta.32",
