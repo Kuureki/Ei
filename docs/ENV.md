@@ -30,6 +30,14 @@ Never commit values; the repo contains names only.
 | `EVE_GATEWAY_DISABLED` | `1` in eval/tests so no Discord connection is opened |
 | `EVAL_ACTIVE_MODEL_ID` | eval expectation for the active model id |
 
+## Integration layer (slice 2)
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `COMPOSIO_API_KEY` | no | Composio SDK key. Missing → composio tools surface as disabled/errored; agent boots and runs unchanged. |
+| `POSTHOG_PROJECT_TOKEN` | no | PostHog project token (AI observability). Missing → no OTel exporter; agent runs unchanged. |
+| `POSTHOG_HOST` | no | PostHog host; default `https://us.i.posthog.com`. |
+
 ## Doppler CLI cheat sheet
 
 - `doppler setup --project ei`
