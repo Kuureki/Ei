@@ -77,6 +77,40 @@ export function mapMessageCreate(d: any, ownerId: string): InboundMessage | null
   };
 }
 
+export function mapInteractionCreate(d: unknown, ownerId: string): InteractionEvent | null {
+  const raw = (d ?? {}) as {
+    id?: unknown;
+    type?: unknown;
+    token?: unknown;
+    channel_id?: unknown;
+    guild_id?: unknown;
+    member?: { user?: { id?: unknown } };
+    user?: { id?: unknown };
+    data?: { name?: unknown; custom_id?: unknown; options?: unknown[]; components?: unknown; resolved?: unknown };
+  };
+  const type = raw.type as InteractionKind | undefined;
+  if (type !== 2 && type !== 4 && type !== 5) return null;
+  const userId = String(raw.member?.user?.id ?? raw.user?.id ?? "");
+  if (!userId || userId !== String(ownerId)) return null;
+  if (typeof raw.id !== "string" || typeof raw.token !== "string" || typeof raw.channel_id !== "string") return null;
+  const data = raw.data ?? {};
+  return {
+    id: raw.id,
+    type,
+    token: raw.token,
+    userId,
+    guildId: typeof raw.guild_id === "string" ? raw.guild_id : undefined,
+    channelId: raw.channel_id,
+    data: {
+      name: typeof data.name === "string" ? data.name : undefined,
+      custom_id: typeof data.custom_id === "string" ? data.custom_id : undefined,
+      options: Array.isArray(data.options) ? data.options : undefined,
+      components: data.components,
+      resolved: data.resolved,
+    },
+  };
+}
+
 export class DiscordGateway {
   private ws?: WebSocket;
   private heartbeatTimer?: ReturnType<typeof setInterval>;
@@ -141,6 +175,9 @@ export class DiscordGateway {
           } else if (data.t === "MESSAGE_CREATE") {
             const msg = mapMessageCreate(data.d, this.cfg.ownerId);
             if (msg) this.cfg.onMessage(msg);
+          } else if (data.t === "INTERACTION_CREATE") {
+            const ev = mapInteractionCreate(data.d, this.cfg.ownerId);
+            if (ev && this.cfg.onInteraction) this.cfg.onInteraction(ev);
           }
           break;
         }
