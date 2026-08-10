@@ -1,214 +1,327 @@
-# Personal Agent Memory Core Implementation Plan
+# Personal Agent Memory Core Implementation Plan (Bun Monorepo)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the memory-core slice of the user's personal agent: an eve agent on their own server that captures thoughts, links, code, files, and voice memos from Discord into innernet (MCP) and answers queries from memory with citations.
 
-**Architecture:** The eve runtime (Node 24) hosts a custom `defineChannel` Discord intake channel plus an `innernet` MCP connection and two preprocessing tools. A small sidecar connector (Node 24 built-in WebSocket, zero deps) talks to Discord's gateway outbound and feeds normalized messages (text + base64 files) to the intake route over loopback. Delivery back to Discord is done by the channel module via Discord REST, so the deployment has no public inbound endpoint.
+**Architecture:** A Bun-managed monorepo with three packages. `packages/agent` is the eve app (custom `defineChannel` Discord intake, `innernet` MCP connection, two preprocessing tools). `packages/connector` is a zero-dependency sidecar that talks to Discord's gateway outbound and feeds normalized messages (text + base64 files) to the intake route over loopback. `packages/shared` holds pure helpers compiled to `dist` and imported by both. The agent server may need to run under Node 24 (eve's engine requirement); the connector runs natively on Bun.
 
-**Tech Stack:** TypeScript, eve ^0.31.3, zod 4.x, ai SDK v7 (`ai` override in package.json), Node 24, vitest, Docker + PostgreSQL (@workflow/world-postgres for prod durable state), innernet MCP.
+**Tech Stack:** Bun 1.x (workspaces, scripts, install, lockfile), TypeScript, eve ^0.31.3, zod 4.x, ai SDK v7, Docker + PostgreSQL (@workflow/world-postgres for prod), innernet MCP, Discord gateway/API v10, Node 24 (eve runtime only).
 
 ## Global Constraints
 
-Copy these verbatim into every task review; all requirements are subordinate to them:
+Violating any of these fails the task:
 
-- Node.js 24 or newer; npm; TypeScript strict, `moduleResolution: bundler`, `noEmit`.
-- eve runtime `^0.31.3`; scaffold pins `ai` via `"overrides": { "ai": "^7.0.38" }`.
+- Bun 1.x is the package manager and task runner. Root `package.json` declares `"private": true`, `"workspaces": ["packages/*"]`, `"packageManager": "bun@1.x"`. Commit `bun.lock`.
+- Monorepo layout: `packages/agent` (`@ei/agent`), `packages/connector` (`@ei/connector`), `packages/shared` (`@ei/shared`). Cross-package import via `@ei/shared` only (bundled/compiled to `dist/`).
+- **eve requires Node 24.** If `eve dev|start|build|invoke` fails under Bun's runtime, run the eve CLI through Node explicitly (`node node_modules/.bin/eve …`). The spike in Task 1 locks this in; do not change runtime stacks silently.
 - The Discord surface is a **custom `defineChannel` gateway channel**. Do not add the built-in `channel/discord` interactions channel.
-- Deployment has **no public inbound endpoint**. The connector connects out to `wss://gateway.discord.gg`; the intake route is loopback-only and guarded by a shared secret header.
+- Deployment has **no public inbound endpoint**. The connector connects out to `wss://gateway.discord.gg`; the intake route is loopback-only and guarded by the shared secret `EVE_CONNECTOR_SECRET`.
 - innernet access is an **app-scoped MCP connection** (`agent/connections/innernet.ts`) reading the token from `INNERNET_KEY`; credentials never appear in model context.
-- Models: cloud APIs only. Default model `anthropic/claude-sonnet-5` with `ANTHROPIC_API_KEY` (or `AI_GATEWAY_API_KEY` with the AI Gateway); transcription uses `OPENAI_API_KEY` (Whisper).
-- **Single-owner auth:** deployments by any Discord user other than `AGENT_OWNER_DISCORD_ID` are dropped silently, no reply, nothing stored.
-- Attachment cap: 10 MB per file; replies split at Discord's 2000-char limit; outbound `allowed_mentions: { parse: [] }`.
-- **No-invention rule** (instruction + eval): never answer a query from outside retrieved memory; reply "not in memory" instead.
-- Secrets live in `.env.local` / server env only; `.env*` is gitignored. Never commit tokens.
-- Every change must keep `npm run typecheck` and `npm test` green; `eve eval --strict` must pass before a task is complete when evals exist.
+- Models: cloud APIs only. Default model `anthropic/claude-sonnet-5` with `ANTHROPIC_API_KEY` (or `AI_GATEWAY_API_KEY`); transcription uses `OPENAI_API_KEY` (Whisper).
+- **Single-owner auth:** any Discord user other than `AGENT_OWNER_DISCORD_ID` is dropped silently, no reply, nothing stored.
+- Attachment cap 10 MB; replies split at Discord's 2000-char limit; outbound `allowed_mentions: { parse: [] }`.
+- **No-invention rule**: never answer from outside retrieved memory; reply "Not in memory."
+- **Tests are deferred this pass.** Do not create `*.test.ts`, vitest, eval suite files, or test harnesses. Verification is `bun run typecheck`, `eve build`, `eve info`, and manual smoke steps per task. The deferred backlog (unit tests + the spec §6 eval suite) is recorded in `README.md` "Deferred" section (Task 6) and must be completed before production cutover.
+- Secrets live in `packages/agent/.env.local` and server env only; `.env*` is gitignored. Never commit tokens.
+- Every task ends green: `bun run typecheck` (agent), `eve build`, and the task's manual smoke pass.
 
 ## File Structure
 
 ```
-/root/dev/projects/Ei
-├── package.json                  # eve agent root (name: ei) — Task 1
-├── tsconfig.json                 # scaffold — Task 1
-├── .gitignore                    # scaffold (adds .env*, .eve, .output) — Task 1
-├── .env.example                  # documented env, committed — Task 1
-├── .env.local                    # real secrets, gitignored — Task 1
-├── README.md                     # runbook + env table + health check — Task 7
-├── Dockerfile                    # self-host image — Task 7
-├── docker-compose.yml            # postgres + app + connector — Task 7
-├── scripts/eval-ci.sh            # strict eval gate — Task 7
-├── .github/workflows/evals.yml   # manual-dispatch eval workflow (optional CI) — Task 7
-├── docs/superpowers/specs/2026-08-10-personal-agent-memory-core-design.md  # spec (exists)
-├── docs/innernet-tools.md        # discovered innernet MCP tool manifest — Task 2
-├── agent/
-│   ├── agent.ts                  # model + workflow world — Tasks 1, 7
-│   ├── instructions.md           # identity, capture/query rules, voice — Tasks 1, 2
-│   ├── channels/
-│   │   ├── eve.ts                # scaffold HTTP channel (local dev/TUI) — Task 1
-│   │   └── discord.ts            # custom defineChannel intake + outbound REST — Task 5
-│   ├── connections/
-│   │   └── innernet.ts           # defineMcpClientConnection — Task 2
-│   ├── tools/
-│   │   ├── fetch_page.ts         # URL → markdown, SSRF-guarded — Task 4
-│   │   └── transcribe_audio.ts   # audio → text via Whisper — Task 4
-│   └── lib/
-│       ├── nets.ts               # isPublicHttpUrl SSRF guard — Task 4
-│       └── discord-util.ts       # token codec, reply splitting — Task 5
-├── connector/
-│   ├── package.json              # type: module, zero runtime deps — Task 6
-│   └── src/
-│       ├── index.ts              # process entry, config — Task 6
-│       └── gateway.ts            # WS client: identify/heartbeat/resume/send — Task 6
-├── evals/
-│   ├── memory-remember-recall.eval.ts     — Task 3
-│   ├── memory-no-fabrication.eval.ts      — Task 3
-│   ├── memory-citation.eval.ts            — Task 3
-│   └── memory-pdf-capture.eval.ts         — Task 3
-└── tests/
-    ├── nets.test.ts              — Task 4
-    ├── fetch_page.test.ts        — Task 4
-    ├── transcribe_audio.test.ts  — Task 4
-    └── discord-util.test.ts      — Task 5
+Ei/
+├── package.json               # root: private, workspaces, bun, task scripts — T1
+├── bun.lock                   # generated by bun install — T1
+├── tsconfig.base.json         # shared strict TS options — T1
+├── .gitignore                 # node_modules, .env*, .eve, .output, dist — T1
+├── README.md                  # runbook + deferred backlog — T6
+├── scripts/
+│   ├── eval-ci.sh             # strict eval gate (evals deferred; script wired) — T6
+│   └── check-innernet-manifest.sh  # manifest gate — T2
+├── docs/superpowers/…         # spec + plan (existing)
+├── docker/
+│   ├── Dockerfile.agent       # node runtime image — T6
+│   └── Dockerfile.connector   # bun runtime image — T6
+├── docker-compose.yml         # db + agent + connector — T6
+└── packages/
+    ├── shared/                # @ei/shared
+    │   ├── package.json       # exports ./dist; scripts build/typecheck — T1
+    │   ├── tsconfig.json      # — T1
+    │   └── src/
+    │       ├── index.ts       # re-exports — T3/T4
+    │       ├── nets.ts        # isPublicHttpUrl — T3
+    │       └── discord-util.ts # token codec + splitReply — T4
+    ├── agent/                 # @ei/agent — eve app
+    │   ├── package.json       # deps: eve, ai, zod, @ei/shared — T1
+    │   ├── tsconfig.json      # extends base, includes agent/** — T1
+    │   ├── .env.example       # documented env — T1
+    │   ├── .env.local         # real secrets, gitignored — T1
+    │   ├── evals/             # empty placeholder, deferred — T1
+    │   └── agent/
+    │       ├── agent.ts       # model config — T1 (world in T6)
+    │       ├── instructions.md# identity + capture/query rules — T2
+    │       ├── channels/
+    │       │   ├── eve.ts     # scaffold HTTP channel (TUI/dev) — T1
+    │       │   └── discord.ts # custom defineChannel intake + REST delivery — T4
+    │       ├── connections/
+    │       │   └── innernet.ts# defineMcpClientConnection — T2
+    │       └── tools/
+    │           ├── fetch_page.ts      # URL → markdown, SSRF-guarded — T3
+    │           └── transcribe_audio.ts# audio → text via Whisper — T3
+    └── connector/             # @ei/connector
+        ├── package.json       # deps @ei/shared (workspace:*); build bundles — T5
+        ├── tsconfig.json      # — T5
+        └── src/
+            ├── gateway.ts     # WS client: identify/heartbeat/resume/send — T5
+            └── index.ts       # process entry, env, intake POST — T5
 ```
 
 ---
 
-### Task 1: Scaffold the eve agent and smoke test local run
+### Task 1: Monorepo scaffold (Bun) and agent smoke test
 
 **Files:**
-- Create: `/root/dev/projects/Ei/package.json`, `tsconfig.json`, `.gitignore`, `.env.example`, `.env.local` (via `eve init`)
-- Create: `agent/agent.ts`, `agent/instructions.md`, `agent/channels/eve.ts` (via `eve init`)
-- Modify: `package.json` (name, scripts)
+- Create: `/root/dev/projects/Ei/package.json`, `tsconfig.base.json`, `packages/shared/package.json`, `packages/shared/tsconfig.json`, `packages/shared/src/.gitkeep`, `packages/connector/package.json`, `packages/connector/tsconfig.json`, `packages/connector/src/.gitkeep`, `packages/agent/evals/.gitkeep`
+- Generate: `packages/agent/` contents via `eve init` (`package.json`, `tsconfig.json`, `.gitignore`, `.vercelignore`, `AGENTS.md`, `CLAUDE.md`, `agent/agent.ts`, `agent/instructions.md`, `agent/channels/eve.ts`)
+- Modify: `packages/agent/package.json` (name `@ei/agent`, add `@ei/shared` workspace dep), root `.gitignore`
 
 **Interfaces:**
 - Consumes: none.
-- Produces: `npm run dev` boots a local server whose HTTP channel answers JSON turns; `npm run typecheck` passes. `.env.example` is the documented env contract later tasks extend.
+- Produces: `bun install` resolves all workspace deps; `bun run typecheck:agent` passes; `bun run dev:agent` boots the server (Node or Bun spike outcome recorded); manifests `.env.example` documented.
 
-- [ ] **Step 1: Initialize the agent in the existing repo**
+- [ ] **Step 1: Root workspace**
 
-Run from `/root/dev/projects/Ei` (the repo has `docs/` and no `package.json` yet):
+Create `/root/dev/projects/Ei/package.json` (the repo currently has none; `docs/` and git history exist):
 
-```bash
-cd /root/dev/projects/Ei
-npm init -y
-node -e "const p=require('./package.json'); p.name='ei'; p.type='module'; p.engines={node:'24.x'}; require('fs').writeFileSync('package.json', JSON.stringify(p,null,2)+'\n')"
-npx eve@latest init .
+```json
+{
+  "name": "ei",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "packageManager": "bun@1.2.4",
+  "scripts": {
+    "dev:agent": "bun run --cwd packages/agent dev",
+    "build:agent": "bun run --cwd packages/agent build",
+    "start:agent": "bun run --cwd packages/agent start",
+    "typecheck:agent": "bun run --cwd packages/agent typecheck",
+    "typecheck:shared": "bun run --cwd packages/shared typecheck",
+    "typecheck": "bun run typecheck:shared && bun run typecheck:agent",
+    "build:shared": "bun run --cwd packages/shared build",
+    "dev:connector": "bun run --cwd packages/connector dev"
+  }
+}
 ```
 
-Expected: eve creates/keeps `agent/agent.ts`, `agent/instructions.md`, `agent/channels/eve.ts`, updates `package.json` (adds `eve`, `ai`, `zod`, `@vercel/connect`, scripts `dev`/`build`/`start`/`typecheck`), `tsconfig.json`, `.gitignore`, `.vercelignore`, `AGENTS.md`, `CLAUDE.md`. The probe scaffold showed the target tree; the init may start an interactive dev server (no TTY in CI: it prints `Development server exited unsuccessfully` — that is fine; the scaffold files are what matter). If `eve init .` refuses because git history/`package.json` interact, run it again after the `node -e` snippet above.
+(Adjust `packageManager` to the installed Bun version: `bun --version`.)
 
-Verify the layout, then remove the scaffold-generated nested `.git` if `eve init` created one inside a subdir (it initialized the repo at root on first run, so this should not happen; `git status` must show only scaffold changes against `a733316`):
+Create `tsconfig.base.json`:
 
-```bash
-git status --short
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "noEmit": true
+  }
+}
 ```
 
-- [ ] **Step 2: Configure model credentials and .env.example**
+Create `.gitignore` (extends the scaffold one; root-level):
 
-Create `.env.example` (committed) with:
+```gitignore
+node_modules
+.env*
+.eve
+.vercel
+.next
+.output
+.nitro
+dist
+.DS_Store
+*.tsbuildinfo
+```
+
+- [ ] **Step 2: Shared package skeleton**
+
+`packages/shared/package.json`:
+
+```json
+{
+  "name": "@ei/shared",
+  "private": true,
+  "type": "module",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target=node && bunx tsc -p tsconfig.json --emitDeclarationOnly --declaration true --outDir dist",
+    "typecheck": "bunx tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": { "typescript": "^5.6.0", "@types/node": "^24.0.0" }
+}
+```
+
+`packages/shared/tsconfig.json`:
+
+```json
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts"]
+}
+```
+
+Touch `packages/shared/src/index.ts` with a placeholder export so the build works:
+
+```ts
+// @ei/shared — pure helpers shared by agent and connector.
+export const SHARED_VERSION = "0.1.0";
+```
+
+- [ ] **Step 3: Agent package via eve init**
+
+```bash
+mkdir -p /root/dev/projects/Ei/packages/agent
+cd /root/dev/projects/Ei/packages/agent
+BUN_INSTALL=0 npx eve@latest init . 2>&1 | tail -40
+```
+
+Expected: agent scaffold files created and deps installed (eve ^0.31.x, ai, zod, @vercel/connect, typescript). If `npx` is unavailable or hangs in this environment, run `bunx eve@latest init .` instead. The scaffold may try to open the TUI; it exits in a non-TTY shell, which is fine.
+
+Then rename to the workspace package and add the shared dependency:
+
+```bash
+cd /root/dev/projects/Ei/packages/agent
+node -e "const p=require('./package.json'); p.name='@ei/agent'; p.private=true; require('fs').writeFileSync('package.json', JSON.stringify(p,null,2)+'\n')"
+bun add @ei/shared@workspace:* --cwd /root/dev/projects/Ei/packages/agent
+```
+
+Adjust the agent's `tsconfig.json` to extend the base:
+
+```json
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "types": ["node"] },
+  "include": ["agent/**/*.ts", "evals/**/*.ts"]
+}
+```
+
+Create `packages/agent/.env.example` (committed) and copy to `.env.local` (gitignored; fill real keys):
 
 ```bash
 # --- model ---
 # Either the AI Gateway key (routes string model ids) ...
 AI_GATEWAY_API_KEY=
-# ... or a direct provider key for the model in agent/agent.ts (e.g. Anthropic)
+# ... or a direct provider key for the model in agent/agent.ts:
 ANTHROPIC_API_KEY=
 # --- innernet (Task 2) ---
 INNERNET_KEY=
-# --- audio transcription (Task 4) ---
+# --- transcription (Task 3) ---
 OPENAI_API_KEY=
-# --- discord (Tasks 5-6) ---
+# --- discord (Tasks 4-5) ---
 DISCORD_BOT_TOKEN=
 DISCORD_APPLICATION_ID=
 AGENT_OWNER_DISCORD_ID=
 EVE_CONNECTOR_SECRET=
 # --- runtime ---
 PORT=3000
+EVE_RUNTIME_URL=http://127.0.0.1:3000
+EVE_INTAKE_PATH=/eve/v1/discord/intake
 ```
 
-Copy to `.env.local` and fill in at least one model key (your own values; do not commit):
+Verify `.env.local` is ignored: `git check-ignore packages/agent/.env.local`.
+
+- [ ] **Step 4: Install and typecheck**
 
 ```bash
-cp .env.example .env.local
-# edit .env.local: set ANTHROPIC_API_KEY (or AI_GATEWAY_API_KEY)
+cd /root/dev/projects/Ei
+bun install
+bun run typecheck:shared
+bun run typecheck:agent
 ```
 
-Ensure `.gitignore` contains `node_modules`, `.env*`, `.eve`, `.output`, `.vercel`, `.next`, `.nitro` (the scaffold does; verify `.env.local` is ignored):
+Expected: both green; `bun.lock` generated. (The agent scaffold may have installed a root-level lockfile earlier; reconcile: delete any stray `packages/agent/package-lock.json` / stray `node_modules` created by the `npx` step, then re-run `bun install`.)
+
+- [ ] **Step 5: Runtime spike: eve under Bun**
 
 ```bash
-git check-ignore .env.local
-```
-
-- [ ] **Step 3: Typecheck and smoke run**
-
-```bash
-npm run typecheck
-```
-
-Expected: clean exit. Then start the dev server in the background and confirm the local HTTP channel answers a turn:
-
-```bash
-npm run dev > /tmp/eve-dev.log 2>&1 &
+cd /root/dev/projects/Ei/packages/agent
+bun run dev > /tmp/eve-dev.log 2>&1 &
 sleep 20
-eve invoke --help          # confirm invoke exists in this version
-eve invoke "Respond with the single word: ready"
+curl -fsS http://127.0.0.1:3000/eve/v1/health
 ```
 
-Expected: `eve invoke` prints JSON whose terminal `outcome.status` is `"completed"` and the assistant `message` contains `ready`. (If `eve invoke` is unavailable in the pinned version, fall back to: keep the dev server running, then `curl -s http://127.0.0.1:3000/eve/v1/health` expecting `200`/`ok`, and record the route shape from `eve info` for use in later tasks.)
+- If the health check responds `ok` (or the log shows the server listening): **eve runs under Bun here**; keep `dev`/`start` as plain `eve …` scripts.
+- If it fails or wedges under Bun: rewrite the agent scripts to force Node. Read the failing log, then set `"dev": "node node_modules/.bin/eve dev"`, `"build": "node node_modules/.bin/eve build"`, `"start": "node node_modules/.bin/eve start"` in `packages/agent/package.json`, and re-run the check. Record the outcome (Bun vs Node) in a comment in that file and in `README.md`.
 
-Troubleshooting a failing turn: read `/tmp/eve-dev.log`; `eve logs` prints the diagnostic log with JSONL records; re-run with `eve dev` in the foreground to see the TUI.
+Regardless of outcome, the durable constraint: **runtime execution must happen under Node 24**; Bun is the repo tooling.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 6: Smoke turn and commit**
+
+With the dev server running:
+
+```bash
+cd /root/dev/projects/Ei/packages/agent
+bunx eve invoke "Respond with the single word: ready" 2>&1 | tail -20
+```
+
+Expected: JSON output with terminal `outcome.status` `"completed"` and a message containing `ready`. If `eve invoke` is unavailable, fall back to `bunx eve info` for discovery and confirm the server responds to `POST /eve/v1/…` per the info output; record the discovery JSON in `/tmp/eve-info.txt` (used by Task 2).
+
+Stop the dev server, then commit from the repo root:
 
 ```bash
 cd /root/dev/projects/Ei
 git add -A
-git commit -m "chore: scaffold eve agent runtime"
+git commit -m "chore: bootstrap bun monorepo with eve agent package"
 ```
 
 ---
 
-### Task 2: innernet MCP connection and end-to-end text capture/query
+### Task 2: innernet MCP connection and capture/query instructions
 
 **Files:**
-- Create: `agent/connections/innernet.ts`
-- Create: `docs/innernet-tools.md`
-- Modify: `agent/instructions.md` (full rewrite), `.env.example` (document `INNERNET_KEY`)
+- Create: `packages/agent/agent/connections/innernet.ts`, `docs/innernet-tools.md`, `scripts/check-innernet-manifest.sh`
+- Modify: `packages/agent/agent/instructions.md` (full rewrite)
 
 **Interfaces:**
-- Consumes: Task 1 local server (`npm run dev`, `eve invoke`).
-- Produces: connection `innernet` whose tools appear to the model as `innernet__<tool>` (verified via `eve info`); manifest `docs/innernet-tools.md` naming the five most important tools: the **save/create** tool name and the **search/recall** tool name (used verbatim by Task 3 evals and the instructions).
+- Consumes: Task 1 (`bunx eve info` output at `/tmp/eve-info.txt`, `INNERNET_KEY`).
+- Produces: connection `innernet` (tools `innernet__<tool>`); manifest `docs/innernet-tools.md` with `SAVE_TOOL` and `SEARCH_TOOL` lines; `instructions.md` behavior contract consumed by Tasks 3-6.
 
-- [ ] **Step 1: Write the failing test (manifest constraint)**
+- [ ] **Step 1: Manifest gate script**
 
-Create `docs/innernet-tools.md` with a placeholder skeleton, then a tiny script that fails until the manifest is populated:
+Create `scripts/check-innernet-manifest.sh`:
 
 ```bash
-cat > docs/innernet-tools.md <<'EOF'
-# innernet MCP tool manifest
-
-Discovered via: `eve info` (must list `innernet__*` tools after Task 2 Step 4).
-
-- `SAVE_TOOL = <innernet__...>`: saves a memory entry (content + metadata)
-- `SEARCH_TOOL = <innernet__...>`: ranked search over memory
-EOF
-cat > scripts/check-innernet-manifest.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-grep -q '^SAVE_TOOL = innernet__' docs/innernet-tools.md || { echo "SAVE_TOOL missing"; exit 1; }
+grep -q '^SAVE_TOOL = innernet__' docs/innernet-tools.md   || { echo "SAVE_TOOL missing"; exit 1; }
 grep -q '^SEARCH_TOOL = innernet__' docs/innernet-tools.md || { echo "SEARCH_TOOL missing"; exit 1; }
 echo "manifest ok"
-EOF
-chmod +x scripts/check-innernet-manifest.sh
-./scripts/check-innernet-manifest.sh
 ```
 
-Expected: FAIL with `SAVE_TOOL missing` (the gate exists before the data).
+Create `docs/innernet-tools.md` placeholder:
+
+```md
+# innernet MCP tool manifest
+- `SAVE_TOOL = <innernet__...>`: saves a memory entry (content + metadata)
+- `SEARCH_TOOL = <innernet__...>`: ranked search over memory
+```
+
+Run `chmod +x scripts/check-innernet-manifest.sh && ./scripts/check-innernet-manifest.sh`; expected: FAIL with `SAVE_TOOL missing`.
 
 - [ ] **Step 2: Add the MCP connection**
 
-Create `agent/connections/innernet.ts`:
+Create `packages/agent/agent/connections/innernet.ts`:
 
 ```ts
 import { defineMcpClientConnection } from "eve/connections";
@@ -223,13 +336,11 @@ export default defineMcpClientConnection({
 });
 ```
 
-Add `INNERNET_KEY` documentation to `.env.example` if missing, and set it in `.env.local` from your innernet account.
+If `innernet.live/api/mcp` turns out to use a non-Bearer scheme, replace `auth` with `headers: { "X-Api-Key": process.env.INNERNET_KEY! }` per innernet's docs (single config point; verify via `eve info` in Step 4).
 
-**Headers note:** if `innernet.live/api/mcp` needs a non-Bearer scheme, extend with `headers: { "X-Api-Key": process.env.INNERNET_KEY! }` and drop `auth`; verify with `eve info` (Step 4). Prefer whatever the innernet docs specify at implementation time; the file is the single place this is configured.
+- [ ] **Step 3: Rewrite instructions**
 
-- [ ] **Step 3: Write the agent instructions**
-
-Replace `agent/instructions.md` with:
+Replace `packages/agent/agent/instructions.md` with:
 
 ```md
 # Identity
@@ -248,9 +359,9 @@ channel and thread when known, and a timestamp. Reply with a one-line
 confirmation and a short snippet of what you saved. Ask before saving only
 when the intent is ambiguous.
 
-When a message is a link URL, fetch and summarize it first (use the
+When a message contains a URL, fetch and summarize it first (use the
 `fetch_page` tool) and save the summary together with the URL.
-When a message contains an audio voice memo, transcribe it first (use the
+When a message contains a voice memo, transcribe it first (use the
 `transcribe_audio` tool) and save the transcript.
 Screenshots, memes, and small talk are NOT captures. Ignore them unless the
 user asks to save them.
@@ -273,292 +384,61 @@ directly.
 You are an automated AI system. Do not impersonate a human.
 ```
 
-- [ ] **Step 4: Discover the tool names and populate the manifest**
+- [ ] **Step 4: Discover tool names and populate the manifest**
+
+Ensure `INNERNET_KEY` is set in `packages/agent/.env.local`. Start the server and dump discovery:
 
 ```bash
-npm run dev > /tmp/eve-dev.log 2>&1 &
-sleep 15
-eve info 2>&1 | tee /tmp/eve-info.txt
+cd /root/dev/projects/Ei/packages/agent
+bun run dev > /tmp/eve-dev.log 2>&1 &
+sleep 20
+bunx eve info > /tmp/eve-info-t2.txt 2>&1
+grep -i innernet /tmp/eve-info-t2.txt
 ```
 
-Expected: output lists connection `innernet` and its discovered tools as `innernet__<...>` (the CLI prints discovered connections and tools; if the list is long, `grep -i innernet /tmp/eve-info.txt`).
-
-From the listing, pick the tool that creates/saves a memory and the tool that searches/recalls, and fill the manifest:
+Expected: the connection and its tools listed as `innernet__<...>`. Set the real names in `docs/innernet-tools.md` (replace the angle-bracket placeholders), then:
 
 ```bash
-python3 - <<'PY'
-import re, pathlib
-info = pathlib.Path("/tmp/eve-info.txt").read_text()
-tools = sorted(set(re.findall(r"innernet__[a-z0-9_]+", info)))
-print("found tools:", tools)
-PY
-```
-
-Edit `docs/innernet-tools.md` to set both lines, e.g.:
-
-```md
-- `SAVE_TOOL = innernet__<actual-save-tool>`: saves a memory entry (content + metadata)
-- `SEARCH_TOOL = innernet__<actual-search-tool>`: ranked search over memory
-```
-
-Then:
-
-```bash
+cd /root/dev/projects/Ei
 ./scripts/check-innernet-manifest.sh   # must print "manifest ok"
 ```
 
-If `eve info` shows no innernet tools, confirm `INNERNET_KEY` is set in `.env.local`, the URL is reachable (`curl -i https://innernet.live/api/mcp` shows an MCP Streamable HTTP handshake response or a `405`/`POST required` style signal), and revisit the auth/headers note in Step 2.
+If no innernet tools appear: confirm `.env.local` (`INNERNET_KEY`), the endpoint reachable (`curl -si https://innernet.live/api/mcp | head -5`), and re-verify auth/headers from Step 2.
 
-- [ ] **Step 5: End-to-end capture and query**
-
-```bash
-eve invoke "Remember this: my favorite color is blue and I prefer the terminal over GUIs."
-eve invoke "What is my favorite color? Answer only from memory."
-```
-
-Expected: first turn's reply confirms saving (calls `innernet__<save>`); second turn's reply contains `blue` and cites retrieved memory. Then:
+- [ ] **Step 5: End-to-end capture and query (manual)**
 
 ```bash
-eve invoke "What is the airspeed velocity of an unladen swallow?"
+cd /root/dev/projects/Ei/packages/agent
+bunx eve invoke "Remember this: my favorite color is blue and I prefer the terminal over GUIs."
+bunx eve invoke "What is my favorite color? Answer only from memory."
+bunx eve invoke "What is the airspeed velocity of an unladen swallow?"
 ```
 
-Expected: exactly `Not in memory.`
+Expected: first turn confirms the save; second answers `blue` with citations; third replies exactly `Not in memory.`
 
 - [ ] **Step 6: Commit**
 
 ```bash
+cd /root/dev/projects/Ei
 git add -A
 git commit -m "feat: connect innernet memory and capture/query instructions"
 ```
 
 ---
 
-### Task 3: Memory eval suite
+### Task 3: Preprocessing tools and `@ei/shared` nets
 
 **Files:**
-- Create: `evals/memory-remember-recall.eval.ts`, `evals/memory-no-fabrication.eval.ts`, `evals/memory-citation.eval.ts`, `evals/memory-pdf-capture.eval.ts`
-
-**Interfaces:**
-- Consumes: Task 2 manifest `docs/innernet-tools.md` (`SAVE_TOOL`, `SEARCH_TOOL` names), local dev server.
-- Produces: `eve eval --strict` gate covering remember/recall, no-fabrication, citation, and file (PDF) capture.
-
-- [ ] **Step 1: Write the first eval**
-
-Create `evals/memory-remember-recall.eval.ts`:
-
-```ts
-import { defineEval } from "eve/evals";
-import { includes } from "eve/evals/expect";
-
-Actual tool names come from `docs/innernet-tools.md` (Task 2). Read that manifest synchronously and make the eval fail loudly if it is unpopulated:
-
-```ts
-import { readFileSync } from "node:fs";
-import { defineEval } from "eve/evals";
-import { includes } from "eve/evals/expect";
-
-const manifest = readFileSync("docs/innernet-tools.md", "utf8");
-const SAVE_TOOL = manifest.match(/^SAVE_TOOL = (innernet__[\w-]+)/m)?.[1];
-const SEARCH_TOOL = manifest.match(/^SEARCH_TOOL = (innernet__[\w-]+)/m)?.[1];
-if (!SAVE_TOOL || !SEARCH_TOOL) throw new Error("docs/innernet-tools.md incomplete; run Task 2");
-
-export default defineEval({
-  async test(t) {
-    const capture = await t.send("Remember: my favorite color is blue.");
-    t.succeeded();
-    t.check(capture.message, includes("blue")).soft();
-
-    const recall = await t.send("What is my favorite color? Answer only from memory.");
-    t.succeeded();
-    t.check(recall.message, includes("blue")); // gate: must answer from memory
-    t.calledTool(SEARCH_TOOL).soft();
-  },
-});
-```
-
-- [ ] **Step 2: Write the no-fabrication eval**
-
-Create `evals/memory-no-fabrication.eval.ts`:
-
-```ts
-import { readFileSync } from "node:fs";
-import { defineEval } from "eve/evals";
-import { includes } from "eve/evals/expect";
-
-const manifest = readFileSync("docs/innernet-tools.md", "utf8");
-const SEARCH_TOOL = manifest.match(/^SEARCH_TOOL = (innernet__[\w-]+)/m)?.[1];
-if (!SEARCH_TOOL) throw new Error("docs/innernet-tools.md incomplete; run Task 2");
-
-export default defineEval({
-  async test(t) {
-    const reply = await t.send(
-      "What is the capital of the fictional land of Zorbonia? Answer only from memory.",
-    );
-    t.succeeded();
-    t.check(reply.message, includes("Not in memory")); // gate: no invention
-    t.calledTool(SEARCH_TOOL).soft();
-  },
-});
-```
-
-- [ ] **Step 3: Write the citation eval**
-
-Create `evals/memory-citation.eval.ts`:
-
-```ts
-import { readFileSync } from "node:fs";
-import { defineEval } from "eve/evals";
-
-const manifest = readFileSync("docs/innernet-tools.md", "utf8");
-const SEARCH_TOOL = manifest.match(/^SEARCH_TOOL = (innernet__[\w-]+)/m)?.[1];
-if (!SEARCH_TOOL) throw new Error("docs/innernet-tools.md incomplete; run Task 2");
-
-export default defineEval({
-  async test(t) {
-    await t.send("Remember: shipping day is Thursday.");
-    const reply = await t.send("When do we ship? Answer only from memory.");
-    t.succeeded();
-    t.calledTool(SEARCH_TOOL); // gate: query must go through innernet search
-    // LLM-as-judge on the reply: answer present and sourced, no invented detail.
-    t.judge.autoevals.closedQA("answers from the recalled memory and cites it").atLeast(0.7);
-  },
-});
-```
-
-- [ ] **Step 4: Write the PDF capture eval**
-
-Create `evals/memory-pdf-capture.eval.ts` with a tiny valid PDF fixture:
-
-```ts
-import { writeFileSync, mkdirSync } from "node:fs";
-import { defineEval } from "eve/evals";
-import { includes } from "eve/evals/expect";
-
-mkdirSync("evals/fixtures", { recursive: true });
-const PDF = Buffer.from([
-  0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0x0a, 0x25, 0x6e, 0x6f, 0x0a,
-  0x31, 0x20, 0x30, 0x20, 0x6f, 0x62, 0x6a, 0x0a, 0x3c, 0x3c, 0x2f, 0x54, 0x79,
-  0x70, 0x65, 0x20, 0x2f, 0x43, 0x61, 0x74, 0x61, 0x6c, 0x6f, 0x67, 0x20, 0x2f,
-  0x50, 0x61, 0x67, 0x65, 0x73, 0x20, 0x32, 0x20, 0x30, 0x20, 0x52, 0x3e, 0x3e,
-  0x0a, 0x65, 0x6e, 0x64, 0x6f, 0x62, 0x6a, 0x0a, 0x32, 0x20, 0x30, 0x20, 0x6f,
-  0x62, 0x6a, 0x0a, 0x3c, 0x3c, 0x2f, 0x54, 0x79, 0x70, 0x65, 0x20, 0x2f, 0x50,
-  0x61, 0x67, 0x65, 0x73, 0x2f, 0x4b, 0x69, 0x64, 0x73, 0x20, 0x5b, 0x33, 0x20,
-  0x30, 0x20, 0x52, 0x5d, 0x2f, 0x43, 0x6f, 0x75, 0x6e, 0x74, 0x20, 0x31, 0x3e,
-  0x3e, 0x0a, 0x65, 0x6e, 0x64, 0x6f, 0x62, 0x6a, 0x0a, 0x33, 0x20, 0x30, 0x20,
-  0x6f, 0x62, 0x6a, 0x0a, 0x3c, 0x3c, 0x2f, 0x54, 0x79, 0x70, 0x65, 0x20, 0x2f,
-  0x50, 0x61, 0x67, 0x65, 0x2f, 0x50, 0x61, 0x72, 0x65, 0x6e, 0x74, 0x20, 0x32,
-  0x20, 0x30, 0x20, 0x52, 0x2f, 0x4d, 0x65, 0x64, 0x69, 0x61, 0x42, 0x6f, 0x78,
-  0x20, 0x5b, 0x30, 0x20, 0x30, 0x20, 0x32, 0x30, 0x30, 0x20, 0x32, 0x30, 0x30,
-  0x5d, 0x2f, 0x43, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74, 0x73, 0x20, 0x5b, 0x34,
-  0x20, 0x30, 0x20, 0x52, 0x5d, 0x3e, 0x3e, 0x0a, 0x65, 0x6e, 0x64, 0x6f, 0x62,
-  0x6a, 0x0a, 0x34, 0x20, 0x30, 0x20, 0x6f, 0x62, 0x6a, 0x0a, 0x3c, 0x3c, 0x2f,
-  0x4c, 0x65, 0x6e, 0x67, 0x74, 0x68, 0x20, 0x31, 0x32, 0x3e, 0x3e, 0x0a, 0x73,
-  0x74, 0x72, 0x65, 0x61, 0x6d, 0x2e, 0x20, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x0a,
-  0x65, 0x6e, 0x64, 0x6f, 0x62, 0x6a, 0x0a, 0x78, 0x72, 0x65, 0x66, 0x0a, 0x30,
-  0x20, 0x35, 0x0a, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30,
-  0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x0a, 0x30, 0x30, 0x30, 0x30, 0x30,
-  0x30, 0x30, 0x30, 0x30, 0x32, 0x30, 0x30, 0x30, 0x30, 0x30, 0x0a, 0x30, 0x30,
-  0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x33, 0x30, 0x30, 0x30, 0x30,
-  0x0a, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x34, 0x30, 0x30,
-  0x30, 0x30, 0x30, 0x0a, 0x74, 0x72, 0x61, 0x69, 0x6c, 0x65, 0x72, 0x0a,
-  0x3c, 0x3c, 0x2f, 0x52, 0x6f, 0x6f, 0x74, 0x20, 0x31, 0x20, 0x30, 0x20, 0x52,
-  0x3e, 0x3e, 0x0a, 0x25, 0x25, 0x45, 0x4f, 0x46, 0x0a,
-]);
-writeFileSync("evals/fixtures/hello.pdf", PDF);
-
-export default defineEval({
-  async test(t) {
-    const turn = await t.send("Please read this PDF and remember its content.",
-      { files: [{ path: "evals/fixtures/hello.pdf", mediaType: "application/pdf" }] },
-    );
-    t.succeeded();
-    t.check(turn.message, includes("Hello")); // model extracted content, plan to adapt to the real string inside the PDF after first run
-    await t.send("What did the PDF say? Answer only from memory.");
-    t.succeeded();
-    t.judge.autoevals.closedQA("answers from the PDF content that was saved").atLeast(0.7);
-  },
-});
-```
-
-Note: if the `send` options object shape differs in the pinned eve version (see `eve/evals` types via `eve eval --list` and `node_modules/eve/docs/evals/assertions.mdx` `sendFile`), switch to `t.sendFile("evals/fixtures/hello.pdf", ...)` per the assertions doc. Keep the tiny PDF; it renders "stream. Hello".
-
-- [ ] **Step 5: Run the suite and iterate**
-
-```bash
-npm run dev > /tmp/eve-dev.log 2>&1 &
-sleep 15
-npx eve eval --strict 2>&1 | tee /tmp/eval-run.txt
-```
-
-Expected: exit code 0 with four evals documented as passed (or `scored` only for soft assertions). Debug any failure with `eve eval --verbose` and the artifacts under `.eve/evals/<timestamp>/` (full event streams per eval). Iterate on prompts/instructions, not on evals: an eval change requires a reason in the commit.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add -A
-git commit -m "feat: add memory eval suite (recall, no-fabrication, citation, pdf)"
-```
-
----
-
-### Task 4: Preprocessing tools with unit tests
-
-**Files:**
-- Create: `tests/nets.test.ts`, `tests/fetch_page.test.ts`, `tests/transcribe_audio.test.ts`
-- Create: `agent/lib/nets.ts`, `agent/tools/fetch_page.ts`, `agent/tools/transcribe_audio.ts`
-- Modify: `package.json` (add `vitest` devDependency, `"test": "vitest run"`), `.env.example` (document `OPENAI_API_KEY`)
+- Create: `packages/shared/src/nets.ts`, `packages/agent/agent/tools/fetch_page.ts`, `packages/agent/agent/tools/transcribe_audio.ts`
+- Modify: `packages/shared/src/index.ts`
 
 **Interfaces:**
 - Consumes: Task 2 instructions (tools referenced by name).
-- Produces: tools `fetch_page` and `transcribe_audio` callable by the model; `agent/lib/nets.ts` `isPublicHttpUrl(url): boolean`.
+- Produces: `isPublicHttpUrl(raw: string): boolean` from `@ei/shared`; tools `fetch_page` and `transcribe_audio` callable by the model.
 
-- [ ] **Step 1: Add vitest, write the failing SSRF guard test**
+- [ ] **Step 1: Implement the SSRF guard in shared**
 
-```bash
-npm install -D vitest
-node -e "const p=require('./package.json'); p.scripts.test='vitest run'; require('fs').writeFileSync('package.json', JSON.stringify(p,null,2)+'\n')"
-```
-
-Create `tests/nets.test.ts`:
-
-```ts
-import { describe, expect, it } from "vitest";
-import { isPublicHttpUrl } from "../agent/lib/nets";
-
-describe("isPublicHttpUrl", () => {
-  it("accepts normal https URLs", () => {
-    expect(isPublicHttpUrl("https://example.com/a/b?q=1")).toBe(true);
-    expect(isPublicHttpUrl("http://example.com")).toBe(true);
-  });
-  it("rejects non-http schemes", () => {
-    expect(isPublicHttpUrl("file:///etc/passwd")).toBe(false);
-    expect(isPublicHttpUrl("ftp://example.com")).toBe(false);
-    expect(isPublicHttpUrl("javascript:alert(1)")).toBe(false);
-  });
-  it("rejects loopback, private, link-local, and literal-IP hosts", () => {
-    expect(isPublicHttpUrl("http://localhost:3999/x")).toBe(false);
-    expect(isPublicHttpUrl("http://127.0.0.1/x")).toBe(false);
-    expect(isPublicHttpUrl("https://10.0.0.8/x")).toBe(false);
-    expect(isPublicHttpUrl("https://192.168.1.10/x")).toBe(false);
-    expect(isPublicHttpUrl("https://169.254.1.1/x")).toBe(false);
-    expect(isPublicHttpUrl("http://[::1]/x")).toBe(false);
-    expect(isPublicHttpUrl("https://mybox.local/x")).toBe(false);
-    expect(isPublicHttpUrl("https://0.0.0.0/x")).toBe(false);
-  });
-});
-```
-
-- [ ] **Step 2: Run it, confirm failure**
-
-```bash
-npm test -- tests/nets.test.ts
-```
-
-Expected: FAIL, module not found (`agent/lib/nets.ts` does not exist yet).
-
-- [ ] **Step 3: Implement the guard**
-
-Create `agent/lib/nets.ts`:
+Create `packages/shared/src/nets.ts`:
 
 ```ts
 export function isPublicHttpUrl(raw: string): boolean {
@@ -573,96 +453,51 @@ export function isPublicHttpUrl(raw: string): boolean {
   let host = url.hostname.toLowerCase().replace(/\.$/, "");
   if (host === "localhost") return false;
   if (host.endsWith(".local") || host.endsWith(".internal")) return false;
-
-  // Strip brackets from IPv6 literals.
   if (host.startsWith("[")) host = host.slice(1, -1);
+  if (host.includes(":")) return false; // IPv6 literal without allowlist
 
-  const isIp = (s: string) => /^[\d.]+$/.test(s);
-  if (isIp(host)) {
-    const parts = host.split(".").map(Number);
-    if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
-      return false;
-    }
-    const [a, b] = parts;
-    if (a === 0) return false; // 0.0.0.0/8
-    if (a === 10) return false; // 10/8
-    if (a === 127) return false; // loopback
-    if (a === 169 && b === 254) return false; // link-local
-    if (a === 172 && b >= 16 && b <= 31) return false; // 172.16/12
-    if (a === 192 && b === 168) return false; // 192.168/16
-    if (a >= 224) return false; // multicast/reserved
-    return true;
+  const isDottedIPv4 = /^\d+(\.\d+){3}$/.test(host);
+  if (isDottedIPv4) {
+    const [a, b] = host.split(".").map(Number);
+    if (a === 0 || a === 10 || a === 127) return false;
+    if (a === 169 && b === 254) return false;
+    if (a === 172 && b >= 16 && b <= 31) return false;
+    if (a === 192 && b === 168) return false;
+    if (a >= 224) return false;
   }
-
-  if (host.includes(":")) return false; // IPv6 literals (non-IP already handled above)
   return true;
 }
 ```
 
-- [ ] **Step 4: Run the guard test, confirm pass**
-
-```bash
-npm test -- tests/nets.test.ts
-```
-
-Expected: PASS.
-
-- [ ] **Step 5: Write the failing fetch_page test**
-
-Create `tests/fetch_page.test.ts`:
+Update `packages/shared/src/index.ts`:
 
 ```ts
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchPage } from "../agent/tools/fetch_page";
-
-describe("fetch_page", () => {
-  afterEach(() => vi.restoreAllMocks());
-
-  it("fetches a public URL and returns markdown, truncated to the cap", async () => {
-    const html = "<html><body><h1>Hello</h1><p>Some body text.</p></body></html>";
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        new Response(html, { status: 200, headers: { "content-type": "text/html" } }),
-      ),
-    );
-    const out = await fetchPage.execute({ url: "https://example.com/post" });
-    expect(out).toHaveProperty("markdown");
-    expect(String(out.markdown)).toContain("Hello");
-    expect(String(out.markdown)).toContain("Some body text");
-  });
-
-  it("rejects private-host URLs without fetching", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    await expect(
-      fetchPage.execute({ url: "http://127.0.0.1:8080/secret" }),
-    ).rejects.toThrow(/blocked|public/i);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-});
+// @ei/shared — pure helpers shared by agent and connector.
+export { isPublicHttpUrl } from "./nets";
+export const SHARED_VERSION = "0.1.0";
 ```
 
-- [ ] **Step 6: Run it, confirm failure**
+Build the shared package (agent and connector import the compiled `dist`):
 
 ```bash
-npm test -- tests/fetch_page.test.ts
+cd /root/dev/projects/Ei/packages/shared
+bun run build
 ```
 
-Expected: FAIL, module not found.
+- [ ] **Step 2: Spike — eve agent importing @ei/shared dist**
 
-- [ ] **Step 7: Implement fetch_page**
+Add `@ei/shared` to `packages/agent/package.json` dependencies if the workspace wiring from Task 1 did not keep it, then from `packages/agent` run `bun run typecheck` and `bun run build`. The agent's eve build must resolve `@ei/shared` to `dist/index.js` (it is in the workspace `node_modules`). If `eve build` fails to bundle the external package, add `"@ei/shared"` to `defineAgent({ build: { externalDependencies: [...] } })` per the eve agent-config docs. Record the resolution in `README.md`.
 
-```bash
-npm install turndown
-```
+- [ ] **Step 3: Implement fetch_page**
 
-Create `agent/tools/fetch_page.ts`:
+`packages/agent/package.json`: add `turndown` (`bun add turndown --cwd packages/agent`).
+
+Create `packages/agent/agent/tools/fetch_page.ts`:
 
 ```ts
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { isPublicHttpUrl } from "../lib/nets";
+import { isPublicHttpUrl } from "@ei/shared";
 
 const FETCH_CAP = 40_000;
 
@@ -672,7 +507,7 @@ export const fetchPage = defineTool({
   inputSchema: z.object({ url: z.string() }),
   async execute(input) {
     if (!isPublicHttpUrl(input.url)) {
-      throw new Error(`URL blocked: not a public http(s) URL`);
+      throw new Error("URL blocked: not a public http(s) URL");
     }
     const res = await fetch(input.url, {
       headers: { "user-agent": "personal-memory-agent/0.1 (+discord private bot)" },
@@ -694,77 +529,18 @@ export const fetchPage = defineTool({
 });
 
 function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 export default fetchPage;
 ```
 
-- [ ] **Step 8: Run it, confirm pass**
+- [ ] **Step 4: Implement transcribe_audio**
 
-```bash
-npm test -- tests/fetch_page.test.ts
-npm run typecheck
-```
-
-Expected: PASS, typecheck clean.
-
-- [ ] **Step 9: Write the failing transcribe_audio test**
-
-Create `tests/transcribe_audio.test.ts`:
-
-```ts
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { transcribeAudio } from "../agent/tools/transcribe_audio";
-
-describe("transcribe_audio", () => {
-  afterEach(() => vi.restoreAllMocks());
-
-  it("posts audio to Whisper and returns the transcript", async () => {
-    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
-      const body = init?.body as FormData;
-      const model = body.get("model");
-      const file = body.get("file");
-      expect(model).toBe("whisper-1");
-      expect(file).toBeInstanceOf(File);
-      return new Response(JSON.stringify({ text: "hello world" }), { status: 200 });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const base64 = Buffer.from("fake-ogg-bytes").toString("base64");
-    const out = await transcribeAudio.execute({ audioBase64: base64, mediaType: "audio/ogg" });
-    expect(out.transcript).toBe("hello world");
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.openai.com/v1/audio/transcriptions",
-      expect.objectContaining({ method: "POST" }),
-    );
-  });
-
-  it("fails clearly without an API key", async () => {
-    vi.stubGlobal("fetch", vi.fn());
-    const original = process.env.OPENAI_API_KEY;
-    delete process.env.OPENAI_API_KEY;
-    try {
-      await expect(
-        transcribeAudio.execute({ audioBase64: "eA==", mediaType: "audio/mp4" }),
-      ).rejects.toThrow(/OPENAI_API_KEY/);
-    } finally {
-      if (original !== undefined) process.env.OPENAI_API_KEY = original;
-    }
-  });
-});
-```
-
-- [ ] **Step 10: Run it, confirm failure**
-
-```bash
-npm test -- tests/transcribe_audio.test.ts
-```
-
-Expected: FAIL, module not found.
-
-- [ ] **Step 11: Implement transcribe_audio**
-
-Create `agent/tools/transcribe_audio.ts`:
+Create `packages/agent/agent/tools/transcribe_audio.ts`:
 
 ```ts
 import { defineTool } from "eve/tools";
@@ -773,10 +549,7 @@ import { z } from "zod";
 export const transcribeAudio = defineTool({
   description:
     "Transcribe an audio voice memo into text using Whisper. Use before saving any voice message to memory.",
-  inputSchema: z.object({
-    audioBase64: z.string(),
-    mediaType: z.string(),
-  }),
+  inputSchema: z.object({ audioBase64: z.string(), mediaType: z.string() }),
   async execute(input) {
     const key = process.env.OPENAI_API_KEY;
     if (!key) throw new Error("OPENAI_API_KEY is not set");
@@ -804,88 +577,55 @@ export const transcribeAudio = defineTool({
   },
 });
 
+const MEDIA_EXT: Record<string, string> = {
+  "audio/ogg": "ogg",
+  "audio/mpeg": "mp3",
+  "audio/mp4": "m4a",
+  "audio/wav": "wav",
+  "audio/webm": "webm",
+};
+
 function extFromMedia(mediaType: string): string {
-  const map: Record<string, string> = {
-    "audio/ogg": "ogg",
-    "audio/mpeg": "mp3",
-    "audio/mp4": "m4a",
-    "audio/wav": "wav",
-    "audio/webm": "webm",
-  };
-  return map[mediaType] ?? "ogg";
+  return MEDIA_EXT[mediaType] ?? "ogg";
 }
 
 export default transcribeAudio;
 ```
 
-- [ ] **Step 12: Run it, confirm pass**
+- [ ] **Step 5: Verify**
 
 ```bash
-npm test
-npm run typecheck
+cd /root/dev/projects/Ei
+bun run typecheck
+cd packages/agent && bun run build && cd ../..
+git check-ignore packages/agent/.env.local
 ```
 
-Expected: all unit tests PASS, typecheck clean.
+Expected: typecheck green, `eve build` succeeds, `.env.local` ignored. Manual verification of the tools happens end-to-end in Task 5 (they need Discord input); `fetch_page` can be probed directly once the server is up (Task 5).
 
-- [ ] **Step 13: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
+cd /root/dev/projects/Ei
 git add -A
-git commit -m "feat: add fetch_page and transcribe_audio tools with tests"
+git commit -m "feat: add fetch_page and transcribe_audio tools"
 ```
 
 ---
 
-### Task 5: Custom Discord channel (intake + delivery)
+### Task 4: Custom Discord channel (intake + delivery)
 
 **Files:**
-- Create: `agent/lib/discord-util.ts`, `tests/discord-util.test.ts`
-- Create: `agent/channels/discord.ts`
-- Modify: `.env.example` (document `DISCORD_BOT_TOKEN`, `AGENT_OWNER_DISCORD_ID`, `EVE_CONNECTOR_SECRET`)
+- Create: `packages/shared/src/discord-util.ts`, `packages/agent/agent/channels/discord.ts`
+- Modify: `packages/shared/src/index.ts`
 
 **Interfaces:**
-- Consumes: Task 1 `.env.local` secrets; Task 2 instructions (capture/query rules).
-- Produces: route `POST /eve/v1/discord/intake` expecting `{ userId, guildId, channelId, threadId?, text, files: [{ name, mediaType, base64 }] }` with header `x-eve-connector-secret`; outbound Discord REST delivery in `message.completed`/`turn.started` events; helpers `encodeToken`/`decodeToken` and `splitReply`.
+- Consumes: Task 3 shared build; Task 2 instructions; Task 1 `.env.local` (secrets).
+- Produces: `DiscordAddress`, `encodeToken`, `decodeToken`, `splitReply` from `@ei/shared`; route mounted by the channel (exact path captured from `eve info`) expected to parse `{ userId, guildId, channelId, threadId?, text, files?: [{ name, mediaType, base64 }] }` with header `x-eve-connector-secret`; outbound REST delivery in `message.completed` + typing in `turn.started`.
 
-- [ ] **Step 1: Write the failing util tests**
+- [ ] **Step 1: Shared discord-util**
 
-Create `tests/discord-util.test.ts`:
-
-```ts
-import { describe, expect, it } from "vitest";
-import { decodeToken, encodeToken, splitReply } from "../agent/lib/discord-util";
-
-describe("discord-util", () => {
-  it("round-trips continuation tokens", () => {
-    const token = encodeToken({ guildId: "111", channelId: "222", threadId: undefined });
-    expect(decodeToken(token)).toEqual({ guildId: "111", channelId: "222", threadId: undefined });
-    const token2 = encodeToken({ guildId: "111", channelId: "222", threadId: "333" });
-    expect(decodeToken(token2)?.threadId).toBe("333");
-  });
-
-  it("splits replies at 2000 chars without cutting when possible", () => {
-    const parts = splitReply("a".repeat(2005));
-    expect(parts.map((p) => p.length).every((l) => l <= 2000)).toBe(true);
-    expect(parts.length).toBe(2);
-  });
-
-  it("keeps short replies whole", () => {
-    expect(splitReply("hi")).toEqual(["hi"]);
-  });
-});
-```
-
-- [ ] **Step 2: Run it, confirm failure**
-
-```bash
-npm test -- tests/discord-util.test.ts
-```
-
-Expected: FAIL, module not found.
-
-- [ ] **Step 3: Implement the utilities**
-
-Create `agent/lib/discord-util.ts`:
+Create `packages/shared/src/discord-util.ts`:
 
 ```ts
 export interface DiscordAddress {
@@ -919,27 +659,22 @@ export function splitReply(text: string, limit = 2000): string[] {
 }
 ```
 
-- [ ] **Step 4: Run it, confirm pass**
+Update `packages/shared/src/index.ts` to also export `discord-util`, then rebuild:
 
 ```bash
-npm test -- tests/discord-util.test.ts
+cd /root/dev/projects/Ei/packages/shared
+bun run build
 ```
 
-Expected: PASS.
+- [ ] **Step 2: Write the channel module**
 
-- [ ] **Step 5: Write the channel module**
-
-Create `agent/channels/discord.ts` (custom `defineChannel`, no Vercel, no webhook):
+Create `packages/agent/agent/channels/discord.ts`:
 
 ```ts
 import { defineChannel, POST } from "eve/channels";
-import { decodeToken, encodeToken, splitReply } from "../lib/discord-util";
+import { decodeToken, encodeToken, splitReply } from "@ei/shared";
 
-interface InboundFile {
-  name: string;
-  mediaType: string;
-  base64: string;
-}
+interface InboundFile { name: string; mediaType: string; base64: string }
 
 interface InboundBody {
   userId: string;
@@ -954,15 +689,13 @@ const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 export default defineChannel({
   routes: [
-    POST("/eve/v1/discord/intake", async (request, { from }) => {
+    POST("/discord/intake", async (request, { from }) => {
       if (request.headers.get("x-eve-connector-secret") !== process.env.EVE_CONNECTOR_SECRET) {
         return new Response("forbidden", { status: 403 });
       }
       const body = (await request.json()) as InboundBody;
-
-      // Single-owner gate: silently drop anyone else, no session, no reply.
       if (body.userId !== process.env.AGENT_OWNER_DISCORD_ID) {
-        return new Response("ignored", { status: 200 });
+        return new Response("ignored", { status: 200 }); // owner gate, silent
       }
 
       const address = encodeToken({
@@ -970,8 +703,10 @@ export default defineChannel({
         channelId: body.channelId,
         threadId: body.threadId,
       });
-
-      const content: Array<{ type: "text"; text: string } | { type: "file"; data: Uint8Array; mediaType: string; name?: string }> = [];
+      const content: Array<
+        | { type: "text"; text: string }
+        | { type: "file"; data: Uint8Array; mediaType: string; name?: string }
+      > = [];
       if (body.text) content.push({ type: "text", text: body.text });
       for (const f of body.files ?? []) {
         const bytes = Buffer.from(f.base64, "base64");
@@ -984,7 +719,6 @@ export default defineChannel({
         }
         content.push({ type: "file", data: bytes, mediaType: f.mediaType, name: f.name });
       }
-
       if (content.length === 0) return new Response("empty", { status: 200 });
 
       await from(address).send(content, { auth: discordAuth(body) });
@@ -1022,7 +756,7 @@ function discordAuth(body: InboundBody) {
   };
 }
 
-async function deliverToDiscord(addr: { guildId: string; channelId: string; threadId?: string }, text: string) {
+async function deliverToDiscord(addr: { channelId: string; threadId?: string }, text: string) {
   const token = process.env.DISCORD_BOT_TOKEN;
   if (!token) return;
   const channelId = addr.threadId ?? addr.channelId;
@@ -1037,17 +771,15 @@ async function deliverToDiscord(addr: { guildId: string; channelId: string; thre
   }
 }
 
-async function startTyping(addr: { guildId: string; channelId: string; threadId?: string }) {
+async function startTyping(addr: { channelId: string; threadId?: string }) {
   const token = process.env.DISCORD_BOT_TOKEN;
   if (!token) return;
-  const channelId = addr.threadId ?? addr.channelId;
-  await fetch(`https://discord.com/api/v10/channels/${channelId}/typing`, {
-    method: "POST",
-    headers: { authorization: `Bot ${token}` },
-  }).catch(() => {});
+  await fetch(
+    `https://discord.com/api/v10/channels/${addr.threadId ?? addr.channelId}/typing`,
+    { method: "POST", headers: { authorization: `Bot ${token}` } },
+  ).catch(() => {});
 }
 
-// Minimal 429-aware helper: waits the retry_after header on 429 and returns the response.
 async function rateLimited(promise: Promise<Response>): Promise<Response> {
   let res = await promise;
   if (res.status === 429) {
@@ -1060,70 +792,67 @@ async function rateLimited(promise: Promise<Response>): Promise<Response> {
 }
 ```
 
-Note: `channel.continuation.token` is the channel-local address (see `docs/channels/custom`); `POST` accepts a relative path and mounts under the eve server. The `content` array shape is `UserContent` (string parts plus file parts) per the custom-channel contract; if the pinned eve version types differ, follow the exact `UserContent` union from `node_modules/eve/docs/channels/custom.mdx`.
+Route path note: this file names a `POST` at `/discord/intake`; the eve server may mount custom channel routes under a prefix (e.g. `/eve/v1/…`). **Capture the actual external path** in the next step from `eve info` (grep the route), then set `EVE_INTAKE_PATH` in `.env.example`/`.env.local` and in `connector` (Task 5) to the full external path (default `/eve/v1/discord/intake`). If the mounted path differs, adjust the constant in one place only: `.env` (the connector reads it).
 
-- [ ] **Step 6: Typecheck and unit tests**
+- [ ] **Step 3: Build, typecheck, and record the route**
 
 ```bash
-npm run typecheck
-npm test
+cd /root/dev/projects/Ei/packages/agent
+bun run typecheck
+bun run build
+bunx eve channels list
+bunx eve info > /tmp/eve-info-routes.txt 2>&1
+grep -B1 -A2 -i "discord" /tmp/eve-info-routes.txt
 ```
 
-Expected: clean; all unit tests PASS. (`agent/channels/discord.ts` is also validated by `eve build`.)
+Expected: typecheck/build green; channels list shows `discord`; the info dump shows the channel route. Set the full external path into `.env.local` (`EVE_INTAKE_PATH=…`) per the note above.
 
-- [ ] **Step 7: Discovery check**
-
-```bash
-eve channels list
-eve info 2>&1 | tee /tmp/eve-info-routes.txt | grep -i -A2 "discord"
-```
-
-Expected: `channels list` shows `discord`; `eve info` lists the custom route. **Record the exact mounted path** (it must end in `.../discord/intake` or be an equivalent prefix you note); Task 6 Step 4 uses it via `EVE_INTAKE_PATH`.
-
-- [ ] **Step 8: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
+cd /root/dev/projects/Ei
 git add -A
 git commit -m "feat: add custom Discord intake channel with owner gate"
 ```
 
 ---
 
-### Task 6: Gateway connector (sidecar process)
+### Task 5: Gateway connector package
 
 **Files:**
-- Create: `connector/package.json`, `connector/src/index.ts`, `connector/src/gateway.ts`
-- Modify: `.env.example` (document `EVE_RUNTIME_URL` default `http://127.0.0.1:3000`)
+- Create: `packages/connector/src/gateway.ts`, `packages/connector/src/index.ts`
+- Modify: `packages/connector/package.json` (scripts `build`/`dev`/`start`)
 
 **Interfaces:**
-- Consumes: Task 5 intake route (`POST /eve/v1/discord/intake` + `x-eve-connector-secret`); Task 1 `.env.local`.
-- Produces: a long-lived process that streams Discord messages and attachments into the intake route. Exports `DiscordGateway` class with `start()`/`stop()` used by `index.ts`.
+- Consumes: Task 4 intake route (`EVE_INTAKE_PATH`), Task 1 `.env`, `@ei/shared` (for `mapMessageCreate` inputs if reused; connector keeps normalization local).
+- Produces: `DiscordGateway` class (`start`/`stop`) and `mapMessageCreate(d, ownerId)` from `gateway.ts`; a long-lived sidecar (`bun src/index.ts`) that streams Discord messages into the intake route. Bundled to a single file via `bun build` for the container (Task 6).
 
-Rationale for sidecar: eve channels are route/event adapters; a Discord gateway client is an outbound long-lived connection. Running it as a tiny zero-dependency Node process next to the server (both in docker-compose, Task 7) keeps concerns separate and avoids wedging the gateway lifecycle into module load.
+Rationale (recorded for the reviewer): eve channels are route/event adapters; a Discord gateway client is an outbound long-lived connection. A tiny sidecar keeps the gateway lifecycle out of the eve server process. It runs natively on Bun (built-in WebSocket) and connects out, so no public inbound is required.
 
-- [ ] **Step 1: Create the connector package**
+- [ ] **Step 1: Package manifest**
 
-Create `connector/package.json`:
+`packages/connector/package.json` (replace the Task 1 skeleton):
 
 ```json
 {
-  "name": "ei-connector",
+  "name": "@ei/connector",
   "private": true,
   "type": "module",
   "engines": { "node": "24.x" },
-  "scripts": { "start": "node src/index.ts", "test": "vitest run" }
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "build": "bun build ./src/index.ts --target=bun --outfile=./dist/index.js",
+    "start": "bun ./dist/index.js"
+  }
 }
 ```
 
-Node 24 has a stable global `WebSocket`; no runtime dependencies are needed. Add vitest as a dev dependency with `npm install -D vitest` in `connector/`.
+- [ ] **Step 2: Gateway client**
 
-Create `connector/src/gateway.ts` (complete implementation):
+Create `packages/connector/src/gateway.ts`:
 
 ```ts
-// Zero-dependency Discord gateway client for Node 24 (global WebSocket).
-// Covers: identify, HELLO heartbeat, READY/RESUMED, sequence tracking,
-// op-close resume, and message intake.
-
+// Zero-dependency Discord gateway client (Bun native WebSocket).
 export interface GatewayConfig {
   token: string;
   intents: number;
@@ -1156,6 +885,32 @@ export const INTENTS = {
   DIRECT_MESSAGES: 1 << 12,
 };
 
+export function mapMessageCreate(d: any, ownerId: string): InboundMessage | null {
+  if (d.author?.bot) return null;
+  if (String(d.author.id) !== String(ownerId)) return null;
+  const attachments: InboundAttachment[] = (d.attachments ?? [])
+    .filter((a: any) => a.size <= 10 * 1024 * 1024)
+    .map((a: any) => ({
+      name: a.filename as string,
+      mediaType: (a.content_type as string) ?? "application/octet-stream",
+      url: a.url as string,
+      size: a.size as number,
+    }));
+  return {
+    userId: String(d.author.id),
+    guildId: d.guild_id ? String(d.guild_id) : "0",
+    channelId: String(d.channel_id),
+    threadId: d.thread ? String(d.thread.id) : undefined,
+    text: [
+      typeof d.content === "string" ? d.content : "",
+      ...(d.embeds ?? [])
+        .map((e: any) => (e.url ? `[link] ${e.url}` : ""))
+        .filter(Boolean),
+    ].join("\n"),
+    attachments,
+  };
+}
+
 export class DiscordGateway {
   private ws?: WebSocket;
   private heartbeatTimer?: ReturnType<typeof setInterval>;
@@ -1182,49 +937,44 @@ export class DiscordGateway {
     this.cfg.log?.(`connecting to ${this.resumeUrl}`);
     const ws = new WebSocket(this.resumeUrl);
     this.ws = ws;
-
     ws.onopen = () => {
-      const payload = this.sessionId
-        ? {
-            op: 6,
-            d: { token: this.cfg.token, session_id: this.sessionId, seq: this.sequence },
-          }
-        : {
-            op: 2,
-            d: {
-              token: this.cfg.token,
-              intents: this.cfg.intents,
-              properties: { os: "linux", browser: "ei-connector", device: "ei-connector" },
-            },
-          };
-      ws.send(JSON.stringify(payload));
+      ws.send(
+        JSON.stringify(
+          this.sessionId
+            ? { op: 6, d: { token: this.cfg.token, session_id: this.sessionId, seq: this.sequence } }
+            : {
+                op: 2,
+                d: {
+                  token: this.cfg.token,
+                  intents: this.cfg.intents,
+                  properties: { os: "linux", browser: "ei-connector", device: "ei-connector" },
+                },
+              },
+        ),
+      );
     };
-
     ws.onmessage = (ev) => {
       const data = JSON.parse(String(ev.data)) as { op: number; s?: number | null; t?: string; d?: any };
       if (typeof data.s === "number") this.sequence = data.s;
       switch (data.op) {
-        case 10: // HELLO
+        case 10:
           this.heartbeatIntervalMs = data.d.heartbeat_interval as number;
           this.startHeartbeat();
           break;
-        case 11: // HEARTBEAT_ACK: no-op
-          break;
         case 0: {
-          const t = data.t;
-          if (t === "READY") {
+          if (data.t === "READY") {
             this.sessionId = data.d.session_id;
             this.cfg.log?.(`READY as ${data.d.user.username}`);
-          } else if (t === "RESUMED") {
+          } else if (data.t === "RESUMED") {
             this.cfg.log?.("RESUMED");
-          } else if (t === "MESSAGE_CREATE") {
-            this.handleMessageCreate(data.d);
+          } else if (data.t === "MESSAGE_CREATE") {
+            const msg = mapMessageCreate(data.d, this.cfg.ownerId);
+            if (msg) this.cfg.onMessage(msg);
           }
           break;
         }
       }
     };
-
     ws.onclose = (ev) => {
       if (this.stopped) return;
       if (ev.code === 4004 || ev.code === 4010) {
@@ -1236,10 +986,7 @@ export class DiscordGateway {
       this.stopHeartbeat();
       setTimeout(() => this.connect(), backoff);
     };
-
-    ws.onerror = () => {
-      this.cfg.log?.("gateway error");
-    };
+    ws.onerror = () => this.cfg.log?.("gateway error");
   }
 
   private startHeartbeat(): void {
@@ -1255,120 +1002,15 @@ export class DiscordGateway {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = undefined;
   }
-
-  private handleMessageCreate(d: any): void {
-    if (d.author?.bot) return; // never react to itself
-    if (String(d.author.id) !== String(this.cfg.ownerId)) return; // owner gate
-
-    const textParts: string[] = [];
-    if (typeof d.content === "string") textParts.push(d.content);
-    for (const embed of d.embeds ?? []) {
-      if (embed.url) textParts.push(`[link] ${embed.url}`);
-    }
-
-    const attachments: InboundAttachment[] = (d.attachments ?? [])
-      .filter((a: any) => a.size <= 10 * 1024 * 1024)
-      .map((a: any) => ({
-        name: a.filename as string,
-        mediaType: (a.content_type as string) ?? "application/octet-stream",
-        url: a.url as string,
-        size: a.size as number,
-      }));
-
-    this.cfg.onMessage({
-      userId: String(d.author.id),
-      guildId: d.guild_id ? String(d.guild_id) : "0",
-      channelId: String(d.channel_id),
-      threadId: d.thread ? String(d.thread.id) : undefined,
-      text: textParts.join("\n"),
-      attachments,
-    });
-  }
 }
 ```
 
-- [ ] **Step 2: Write integration tests for normalization (via the class)**
+- [ ] **Step 3: Process entry**
 
-Create `connector/test/gateway.test.ts` (unit-testing `handleMessageCreate` by instantiating with a stub WebSocket is not possible; instead export the pure mapper). Refactor `gateway.ts`: extract a pure function before testing:
-
-```ts
-export function mapMessageCreate(d: any, ownerId: string): InboundMessage | null {
-  if (d.author?.bot) return null;
-  if (String(d.author.id) !== String(ownerId)) return null;
-  const attachments: InboundAttachment[] = (d.attachments ?? [])
-    .filter((a: any) => a.size <= 10 * 1024 * 1024)
-    .map((a: any) => ({
-      name: a.filename as string,
-      mediaType: (a.content_type as string) ?? "application/octet-stream",
-      url: a.url as string,
-      size: a.size as number,
-    }));
-  return {
-    userId: String(d.author.id),
-    guildId: d.guild_id ? String(d.guild_id) : "0",
-    channelId: String(d.channel_id),
-    threadId: d.thread ? String(d.thread.id) : undefined,
-    text: [d.content, ...(d.embeds ?? []).map((e: any) => (e.url ? `[link] ${e.url}` : "")).filter(Boolean)].join("\n"),
-    attachments,
-  };
-}
-```
-
-Update `handleMessageCreate` to call `mapMessageCreate` and skip on null. Add `connector/test/gateway.test.ts`:
+Create `packages/connector/src/index.ts`:
 
 ```ts
-import { describe, expect, it } from "vitest";
-import { mapMessageCreate } from "../src/gateway";
-
-describe("mapMessageCreate", () => {
-  it("maps a message with attachment", () => {
-    const out = mapMessageCreate(
-      {
-        author: { id: "111", bot: false },
-        guild_id: "g1",
-        channel_id: "c1",
-        content: "hello",
-        attachments: [{ filename: "a.pdf", content_type: "application/pdf", url: "https://cdn.discordapp.com/attachments/a", size: 100 }],
-      },
-      "111",
-    );
-    expect(out?.text).toBe("hello");
-    expect(out?.attachments[0].mediaType).toBe("application/pdf");
-  });
-
-  it("drops bots and non-owners", () => {
-    expect(mapMessageCreate({ author: { id: "111", bot: true } }, "111")).toBeNull();
-    expect(mapMessageCreate({ author: { id: "222" } }, "111")).toBeNull();
-  });
-
-  it("filters oversized attachments", () => {
-    const out = mapMessageCreate(
-      { author: { id: "111", bot: false }, guild_id: "g", channel_id: "c", content: "", attachments: [{ filename: "big.bin", content_type: "application/octet-stream", url: "u", size: 11 * 1024 * 1024 }] },
-      "111",
-    );
-    expect(out?.attachments).toHaveLength(0);
-  });
-});
-```
-
-- [ ] **Step 3: Run connector tests, confirm pass**
-
-```bash
-cd /root/dev/projects/Ei/connector
-npm install
-npm test
-```
-
-Expected: PASS.
-
-- [ ] **Step 4: Write the process entry point**
-
-Route path: use whatever `eve info` reported as the actual mount for the custom channel in Task 5 Step 7 (the exact prefix under `/eve/` is verified there; `EVE_INTAKE_PATH` defaults to the expected one and the env var is the single override).
-
-Create `connector/src/index.ts`:
-
-```ts
-import { DiscordGateway, INTENTS, mapMessageCreate } from "./gateway";
+import { DiscordGateway, INTENTS } from "./gateway";
 
 const token = process.env.DISCORD_BOT_TOKEN ?? "";
 const ownerId = process.env.AGENT_OWNER_DISCORD_ID ?? "";
@@ -1388,18 +1030,17 @@ const gateway = new DiscordGateway({
   log: (line) => console.log(new Date().toISOString(), line),
   onMessage: async (msg) => {
     try {
-      const files = [];
+      const files: Array<{ name: string; mediaType: string; base64: string }> = [];
       for (const a of msg.attachments) {
         const res = await fetch(a.url, { headers: { authorization: `Bot ${token}` } });
         if (!res.ok) {
           console.error("attachment download failed", a.name, res.status);
           continue;
         }
-        const bytes = new Uint8Array(await res.arrayBuffer());
         files.push({
           name: a.name,
           mediaType: a.mediaType,
-          base64: Buffer.from(bytes).toString("base64"),
+          base64: Buffer.from(await res.arrayBuffer()).toString("base64"),
         });
       }
       const res = await fetch(`${runtimeUrl}${intakePath}`, {
@@ -1414,8 +1055,9 @@ const gateway = new DiscordGateway({
           files: files.length ? files : undefined,
         }),
       });
-      if (!res.ok && (await res.text()) !== "ignored") {
-        console.error("intake failed", res.status, await res.text().catch(() => ""));
+      const bodyText = await res.text().catch(() => "");
+      if (!res.ok && bodyText !== "ignored") {
+        console.error("intake failed", res.status, bodyText);
       } else {
         console.log("intake ok");
       }
@@ -1432,62 +1074,62 @@ process.on("SIGINT", () => { gateway.stop(); process.exit(0); });
 process.on("SIGTERM", () => { gateway.stop(); process.exit(0); });
 ```
 
-Add `EVE_RUNTIME_URL` and `EVE_INTAKE_PATH` to `.env.example`:
+- [ ] **Step 4: Build and bundle**
 
 ```bash
-# connector -> runtime intake (loopback)
-EVE_RUNTIME_URL=http://127.0.0.1:3000
-# actual mount reported by `eve info` for the custom channel, if different
-EVE_INTAKE_PATH=/eve/v1/discord/intake
+cd /root/dev/projects/Ei/packages/connector
+bun run build
+ls -la dist/
 ```
 
-- [ ] **Step 5: Manual end-to-end verification against real Discord**
+Expected: `dist/index.js` exists (single-file bundle including the shared helpers). `bunx tsc -p tsconfig.json --noEmit` from `packages/connector` passes typecheck (add `tsconfig.json` extending the base with `"include": ["src/**/*.ts"]` and a `typecheck` script if missing).
 
-Prereqs: a Discord application created at discord.com/developers/applications, with a bot user; **Message Content Intent** enabled under Bot settings; invite URL scoped `bot` with permissions `Send Messages`, `Read Message History` (integration type guild install); the bot added to your server (or DMs enabled on the app). Fill `.env.local` with `DISCORD_BOT_TOKEN`, `DISCORD_APPLICATION_ID`, and `AGENT_OWNER_DISCORD_ID`.
+- [ ] **Step 5: Manual end-to-end against real Discord**
 
-1. Start the runtime: `npm run dev > /tmp/eve-dev.log 2>&1 &` (from the repo root; serves on port 3000).
-2. Start the connector: `cd connector && EVE_RUNTIME_URL=http://127.0.0.1:3000 npm start > /tmp/connector.log 2>&1 &`.
-3. Watch logs: `tail -f /tmp/connector.log`; expect `READY as <botname>`.
-4. In your Discord server (or DM), send: `Remember: the wifi password household is open sesame`.
-5. Expect: (a) connector logs `intake ok`; (b) the bot replies via Discord REST with a one-line confirmation; (c) `eve invoke "What is the wifi password household?"` returns the recalled value with citation.
-6. Send an image and a PDF attachment; expect capture with confirmation; then query by content.
+Prereqs: Discord application + bot in the developer portal; **Message Content Intent** enabled; invite with `bot` scope and `Send Messages` + `Read Message History` permissions; bot added to your server. Fill `packages/agent/.env.local` with `DISCORD_BOT_TOKEN`, `DISCORD_APPLICATION_ID`, `AGENT_OWNER_DISCORD_ID`.
+
+1. Start the agent: `cd /root/dev/projects/Ei/packages/agent && bun run dev > /tmp/eve-dev.log 2>&1 &`
+2. Start the connector with the agent's env: `cd /root/dev/projects/Ei/packages/connector && bun --env-file=../agent/.env.local src/index.ts > /tmp/connector.log 2>&1 &`
+3. `tail -f /tmp/connector.log`; expect `READY as <botname>`.
+4. In Discord (server or DM): `Remember: the wifi password household is open sesame`.
+5. Expect: connector logs `intake ok`; the bot replies with a one-line confirmation; `eve invoke "What is the wifi password household?"` returns the recalled value with citation.
+6. Send an image and a PDF; expect capture with confirmation; verify by querying content afterward.
 7. Ask `What is the airspeed velocity of an unladen swallow?`; expect the reply `Not in memory.`
-8. From a second Discord account, message the bot; expect silence (owner gate), and no sessions in `.eve/.workflow-data`.
-9. Kill the connector mid-session (SIGTERM), restart it; expect `RESUMED` in logs and the next message continuing the same session.
+8. From a second Discord account, message the bot; expect silence (owner gate).
+9. `kill` the connector (SIGTERM) and restart; expect `RESUMED` and the next message continuing the same session.
 
-Debug aids: `/tmp/connector.log` and `/tmp/eve-dev.log`; `eve logs` for runtime diagnostics; Discord dev portal audit/interactions logs not needed for gateway.
+Debug aids: `/tmp/connector.log`, `/tmp/eve-dev.log`, `bunx eve logs` (from `packages/agent`) for runtime diagnostics.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 cd /root/dev/projects/Ei
 git add -A
-git commit -m "feat: add Discord gateway connector (zero-dep)"
+git commit -m "feat: add join Discord gateway connector (bun, zero-dep)"
 ```
 
 ---
 
-### Task 7: Hardening, deployment packaging, and runbook
+### Task 6: Packaging, runbook, and deferred-test backlog
 
 **Files:**
-- Create: `Dockerfile`, `docker-compose.yml`, `scripts/eval-ci.sh`, `.github/workflows/evals.yml`, `README.md`
-- Modify: `agent/agent.ts` (Postgres workflow world), `.env.example`
+- Create: `docker/Dockerfile.agent`, `docker/Dockerfile.connector`, `docker-compose.yml`, `scripts/eval-ci.sh`, `README.md`
+- Modify: `packages/agent/agent/agent.ts` (Postgres world), `.env.example` (world vars)
 
 **Interfaces:**
-- Consumes: Tasks 1-6 artifacts; self-host docs (`node_modules/eve/docs/guides/deployment/self-hosting.md`, committed with the dependency).
-- Produces: `docker compose up -d` runs postgres + app + connector on the user's server; `curl http://localhost:PORT/eve/v1/health` answers; runbook documents env, health check, upgrades, and the eval gate.
+- Consumes: Tasks 1-5 artifacts; `node_modules/eve/docs/guides/deployment/self-hosting.md` (committed with the dependency).
+- Produces: `docker compose up -d --build` runs `db` + `agent` + `connector`; `curl http://localhost:3000/eve/v1/health` answers; runbook documents env, health check, upgrade path, and the deferred test backlog.
 
-- [ ] **Step 1: Switch the durable world to Postgres for production**
-
-Pin the Postgres world to the workflow line matching the pinned eve release (`5.0.0-beta` line per self-hosting doc; `@workflow/world-postgres` may lag `latest`):
+- [ ] **Step 1: Postgres world for production**
 
 ```bash
-version=$(npm view @workflow/world-postgres versions --json | python3 -c 'import json,sys; vs=[v for v in json.load(sys.stdin) if v.startswith("5.0.0-beta")]; print(vs[-1])')
+version=$(bunx npm view @workflow/world-postgres versions --json | python3 -c 'import json,sys; vs=[v for v in json.load(sys.stdin) if v.startswith("5.0.0-beta")]; print(vs[-1])')
 echo "installing @workflow/world-postgres@$version"
-npm install "@workflow/world-postgres@$version"
+cd /root/dev/projects/Ei/packages/agent
+bun add "@workflow/world-postgres@$version"
 ```
 
-Update `agent/agent.ts`:
+Update `packages/agent/agent/agent.ts`:
 
 ```ts
 import { defineAgent } from "eve";
@@ -1502,38 +1144,56 @@ export default defineAgent({
 });
 ```
 
-Read the installed package's README (`node_modules/@workflow/world-postgres/`) for its exact env var names (connection string and pooling), and document them in `.env.example` under a `# postgres world` section (e.g. `POSTGRES_URL=` / `POSTGRES_CONNECTION_STRING=` per that package). Local dev without those env vars still uses the local world.
+Read `node_modules/@workflow/world-postgres/README*` for the exact env var name(s) (connection string / pooling) and document them in `packages/agent/.env.example` under a `# postgres world (production only)` section. Local dev without those env vars uses the local world.
 
-- [ ] **Step 2: Write the Dockerfile**
+- [ ] **Step 2: Agent image**
 
-Create `Dockerfile`:
+Create `docker/Dockerfile.agent` (Bun for build, Node 24 for the runtime, since eve runs on Node):
 
 ```dockerfile
-# syntax=docker/dockerfile:1
-FROM node:24-slim AS build
+FROM oven/bun:1 AS build
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY package.json bun.lock* ./
+COPY packages/agent/package.json packages/agent/package.json
+COPY packages/shared/package.json packages/shared/package.json
+COPY packages/connector/package.json packages/connector/package.json
+RUN bun install --frozen-lockfile
 COPY . .
-RUN npm run build
+RUN cd packages/shared && bun run build && cd ../.. \
+ && cd packages/agent && bun run build
 
 FROM node:24-slim
 WORKDIR /app
 ENV NODE_ENV=production
-COPY --from=build /app/package.json /app/package-lock.json ./
+COPY --from=build /app/package.json /app/bun.lock* ./
+COPY --from=build /app/packages /app/packages
 COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/.output ./.output
-COPY --from=build /app/agent ./agent
-COPY --from=build /app/evals ./evals
-COPY --from=build /app/docs ./docs
-CMD ["node", ".output/server/index.mjs"]
+COPY --from=build /app/packages/agent/.output ./packages/agent/.output
+CMD ["node", "packages/agent/.output/server/index.mjs"]
 ```
 
-(The exact app entry inside `.output` may be `.output/server/index.mjs`: verify by running `eve build` and listing `.output/server/` in a later step; adjust `CMD` if the entry differs.)
+Note: verify the Nitro entry under `packages/agent/.output/server/` after `eve build` (it is typically `index.mjs`); adjust `CMD` if the filename differs. The runtime image only needs the agent's `node_modules` (hoisted at root by Bun) plus `.output`.
 
-- [ ] **Step 3: Write docker-compose.yml**
+- [ ] **Step 3: Connector image and compose**
 
-Create `docker-compose.yml`:
+Create `docker/Dockerfile.connector`:
+
+```dockerfile
+FROM oven/bun:1 AS build
+WORKDIR /app
+COPY packages/connector/package.json packages/connector/package.json
+COPY packages/shared/package.json packages/shared/package.json
+COPY packages/shared/src ./packages/shared/src
+COPY packages/connector/src ./packages/connector/src
+RUN cd packages/connector && bun install && bun run build
+
+FROM oven/bun:1
+WORKDIR /app
+COPY --from=build /app/packages/connector/dist ./dist
+CMD ["bun", "dist/index.js"]
+```
+
+Create `docker-compose.yml` (repo root; compose resolves relative `dockerfile:` paths under `docker/`):
 
 ```yaml
 services:
@@ -1552,37 +1212,31 @@ services:
       timeout: 3s
       retries: 20
 
-  app:
-    build: .
+  agent:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.agent
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
     environment:
-      # model
       AI_GATEWAY_API_KEY: ${AI_GATEWAY_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      # innernet
       INNERNET_KEY: ${INNERNET_KEY:?set INNERNET_KEY}
-      # transcription
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      # discord (runtime-side outbound only; connector holds the gateway)
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:?set DISCORD_BOT_TOKEN}
       AGENT_OWNER_DISCORD_ID: ${AGENT_OWNER_DISCORD_ID:?set AGENT_OWNER_DISCORD_ID}
       EVE_CONNECTOR_SECRET: ${EVE_CONNECTOR_SECRET:?set EVE_CONNECTOR_SECRET}
-      # postgres world: match @workflow/world-postgres env names
+      # match @workflow/world-postgres env names from its README:
       POSTGRES_URL: postgres://ei:${POSTGRES_PASSWORD}@db:5432/ei
-      # runtime
       PORT: 3000
       HOSTNAME: 0.0.0.0
-      # sandbox: Docker backend, running side-by-side
       EVE_SANDBOX: docker
-      # no public ports; internal network only
     expose:
       - "3000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    # node:24-slim ships no curl; probe with node itself.
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000/eve/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 15s
@@ -1591,105 +1245,51 @@ services:
 
   connector:
     build:
-      context: ./connector
-      dockerfile: Dockerfile.connector
+      context: .
+      dockerfile: docker/Dockerfile.connector
     restart: unless-stopped
     depends_on:
-      app:
+      agent:
         condition: service_healthy
     environment:
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:?set DISCORD_BOT_TOKEN}
       AGENT_OWNER_DISCORD_ID: ${AGENT_OWNER_DISCORD_ID:?set AGENT_OWNER_DISCORD_ID}
       EVE_CONNECTOR_SECRET: ${EVE_CONNECTOR_SECRET:?set EVE_CONNECTOR_SECRET}
-      EVE_RUNTIME_URL: http://app:3000
+      EVE_RUNTIME_URL: http://agent:3000
+      EVE_INTAKE_PATH: ${EVE_INTAKE_PATH:-/eve/v1/discord/intake}
 
 volumes:
   pgdata:
 ```
 
-Create `connector/Dockerfile.connector` (build context is the repo root; paths are relative to it):
+- [ ] **Step 4: Eval gate script (deferred tests)**
 
-```dockerfile
-FROM node:24-slim
-WORKDIR /conn
-COPY connector/package.json connector/package-lock.json ./
-RUN npm ci --omit=dev
-COPY connector/src ./src
-CMD ["node", "src/index.ts"]
-```
-
-npm ci requires the lockfile committed in `connector/package-lock.json` (generate it with `npm install` in `connector/`).
-
-- [ ] **Step 4: Write the eval gate script and optional CI**
-
-Create `scripts/eval-ci.sh`:
+Create `scripts/eval-ci.sh` (wired now; the suite files are created when tests are un-deferred):
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-# Requires the app to be running (eve eval boots its own local server when none is targeted).
-npx eve eval --strict --junit .eve/junit.xml "$@"
+bunx --cwd packages/agent eve eval --strict --junit .eve/junit.xml "$@"
 ```
 
-Create `.github/workflows/evals.yml` (manual dispatch only; evals cost model tokens):
+Add to `README.md` under "Deferred tests" the required backlog from the spec (§6): unit tests for `nets`/`discord-util`/preprocessing, and the eval suite (`memory-remember-recall`, `memory-no-fabrication`, `memory-citation`, `memory-pdf-capture`) — all mandatory before production cutover, with the exact eval run command.
 
-```yaml
-name: evals
-on:
-  workflow_dispatch:
-jobs:
-  evals:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npx eve eval --strict --junit .eve/junit.xml
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          INNERNET_KEY: ${{ secrets.INNERNET_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: eval-artifacts
-          path: .eve/evals/
-```
-
-- [ ] **Step 5: Build, verify self-host layout, health check**
+- [ ] **Step 5: Build and health check**
 
 ```bash
-chmod +x scripts/eval-ci.sh
-./docker/root/Dockerfile 2>/dev/null || true   # no-op guard; see note
-eve build
-ls .output/server/                     # find the server entry (index.mjs typically)
-EVE_DEBUG=1 PORT=3000 eve start --host 0.0.0.0 > /tmp/eve-start.log 2>&1 &
-sleep 10
-curl -fsS http://127.0.0.1:3000/eve/v1/health
-curl -fsS -X POST http://127.0.0.1:3000/eve/v1/discord/intake -H "content-type: application/json" -H "x-eve-connector-secret: $EVE_CONNECTOR_SECRET" -d '{"userId":"'$AGENT_OWNER_DISCORD_ID'","guildId":"0","channelId":"c","text":"smoke"}'
-```
-
-Expected: health check `200`; intake round-trip responds `ok`; `.output/server/` entry matched in the Dockerfile `CMD`. Kill `eve start`, then align `Dockerfile` CMD if needed.
-
-Now the full stack in containers:
-
-```bash
-cp .env.example .env.local        # if not present on the server; fill all required vars
-docker compose config             # validates interpolation
+cd /root/dev/projects/Ei
+docker compose config           # validates interpolation; env vars must be set or composed
 docker compose up -d --build
-docker compose ps                 # all three services healthy
+docker compose ps               # db healthy, agent healthy, connector running
 curl -fsS http://127.0.0.1:3000/eve/v1/health
 ```
 
-Then repeat the Task 6 manual end-to-end steps against the containerized deployment.
+Then repeat the Task 5 manual end-to-end steps against the containerized deployment.
 
 - [ ] **Step 6: Write the runbook**
 
-Create `README.md` with: project summary (memory core slice), the architecture diagram from the spec (Section 3, redrawn as text), the full env table below, quick start (local: `cp .env.example .env.local`, fill keys, `npm run dev`; server: `docker compose up -d --build`), health check, how to run evals (`./scripts/eval-ci.sh`), how to add channels/connections/tools (eve registry note), upgrade path (pin eve + world line, release notes first), and the privacy note (innernet and model APIs are third parties).
+Create `README.md` with: project summary (memory core slice); the architecture diagram from the spec §3 (text form); the env table below; quick start (local: `bun install`, `cp packages/agent/.env.example packages/agent/.env.local`, fill keys, `bun run dev:agent`; server: `docker compose up -d --build`); health check; how to run evals (`./scripts/eval-ci.sh`); upgrade path (pin eve + `@workflow/*` line, read release notes); the runtime note (Bun tools, Node 24 for the agent server per the Task 1 spike); privacy note (innernet + model APIs are third parties); and the Deferred-tests section from Step 4.
 
 Env table for README:
 
@@ -1699,32 +1299,32 @@ Env table for README:
 | `OPENAI_API_KEY` | optional | Whisper transcription |
 | `INNERNET_KEY` | yes | innernet MCP memory access |
 | `DISCORD_BOT_TOKEN` | yes | Bot token for gateway + REST delivery |
-| `DISCORD_APPLICATION_ID` | yes | Application id (invite URL / intents portal) |
+| `DISCORD_APPLICATION_ID` | yes | Application id (invite / intents portal) |
 | `AGENT_OWNER_DISCORD_ID` | yes | Single owner; everyone else is dropped |
 | `EVE_CONNECTOR_SECRET` | yes | Shared secret for the loopback intake route |
-| `EVE_RUNTIME_URL` | optional | `http://app:3000` in compose; `http://127.0.0.1:3000` local |
-| `POSTGRES_PASSWORD` / world vars | prod | Postgres durable state (hosting) |
+| `EVE_RUNTIME_URL` | optional | `http://agent:3000` in compose; `http://127.0.0.1:3000` local |
+| `EVE_INTAKE_PATH` | optional | Full intake route from `eve info` (default `/eve/v1/discord/intake`) |
+| `POSTGRES_PASSWORD` + world vars | prod | Postgres durable state (`@workflow/world-postgres`) |
 | `PORT` | optional | Default 3000 |
 
 - [ ] **Step 7: Final gate and commit**
 
 ```bash
-npm run typecheck
-npm test
-./scripts/eval-ci.sh            # all four evals green (--strict)
-git check-ignore .env.local
+cd /root/dev/projects/Ei
+bun run typecheck
+git check-ignore packages/agent/.env.local
+docker compose config >/dev/null   # if docker available
 git add -A
-git commit -m "chore: containerize, document, and gate the memory agent"
+git commit -m "chore: containerize, runbook, and wire eval gate"
 ```
 
-Expected: typecheck clean, all unit tests pass, `eve eval --strict` exits 0, `.env.local` ignored, commit succeeds.
+Expected: typecheck green, env ignored, compose config valid, commit succeeds.
 
 ---
 
 ## Self-Review Notes (run by the plan author)
 
-- **Spec coverage:** channels (custom `defineChannel`, Discord) → Tasks 5-6; connector → Task 6; innernet connection → Task 2; tools (`fetch_page`, `transcribe_audio`) → Task 4; instructions → Task 2; evals (recall, citation, no-fabrication, PDF) → Task 3; durable runtime + Postgres + Docker sandbox → Tasks 1, 7; error handling (10 MB cap, 2000-char split, typing, owner gate, retry on 429, gateway resume) → Tasks 5-6; build order 1-5 → Tasks 1-7; deployment (self-host, no public inbound, systemd/docker-compose, health) → Task 7.
-- **Open spec risks addressed:** innernet tool names → Task 2 Step 4 manifest + script gate; connector process model → sidecar chosen (Task 6 header rationale); MESSAGE_CONTENT intent → Task 6 manual prereqs; voice memo → `transcribe_audio` (Task 4); capture noise → conservative instructions (Task 2) with channel/UI filters deferred; cost → eval gate keeps model usage visible, budgets noted in README upgrade section.
-- **Placeholder scan:** none; all steps carry code or exact commands. Manifest values (`SAVE_TOOL`, `SEARCH_TOOL`) are discovered in Task 2 and fail a script gate until set, never left as TBD.
-- **Type consistency:** `InboundMessage`/`InboundAttachment` used identically in `connector/src/gateway.ts` and `connector/src/index.ts`; `DiscordAddress`/`decodeToken`/`encodeToken`/`splitReply` names match between `agent/channels/discord.ts` and `agent/lib/discord-util.ts`; `fetchPage.execute` / `transcribeAudio.execute` schemas match their tests; `defineEval` `test(t)` usage matches `eve/evals` docs (`t.send`, `t.calledTool`, `t.check`, `t.judge.autoevals.closedQA`).
-- **Known to verify during implementation (flagged, not placeholders):** exact `UserContent` part shape and `send` options in the pinned eve version; exact Discord gateway/typing REST endpoints (v10 documented); `@workflow/world-postgres` env var names from its README; `.output/server` entry name; `eve invoke` availability in v0.31.3 (fallback documented).
+- **Spec coverage:** custom Discord channel + connector (Tasks 4-5) match spec §3.1-3.2; innernet MCP connection (Task 2) matches §3.3; tools (Task 3) match §3.4; instructions (Task 2) match §3.5; data flow capture/query (Tasks 2, 5 manual); error handling (10 MB cap, 2000 split, typing, owner gate, 429 backoff, gateway resume) in Tasks 4-5; deployment self-host / no public inbound / Postgres (Task 6); risks: innernet tool names (manifest gate Task 2), connector process model (sidecar rationale Task 5), MESSAGE_CONTENT intent (Task 5 prereqs), voice (transcribe_audio Task 3), capture noise (instructions Task 2). Deferred by user decision: spec §6 testing (evals + unit tests) recorded as backlog (Task 6).
+- **Placeholder scan:** no TBD/TODO. The only intentionally-open values are discovered at runtime and gated by scripts: `INNERNET_KEY` (env), innernet tool names (manifest script), `EVE_INTAKE_PATH` (route discovery step), `.output` entry name (Task 6 verification step).
+- **Type consistency:** `InboundMessage`/`InboundAttachment`/`mapMessageCreate` identical across gateway pull and index push; `DiscordAddress`/`encodeToken`/`decodeToken`/`splitReply` single-source in `@ei/shared`; `isPublicHttpUrl` in `@ei/shared` and consumed by `fetch_page`; `fetchPage.execute`/`transcribeAudio.execute` schemas match their call sites; all package names (`@ei/agent`, `@ei/connector`, `@ei/shared`) consistent across manifests, scripts, and Dockerfiles.
+- **Known to verify during implementation (flagged, not placeholders):** eve-under-Bun spike (Task 1 step 5); actual intake mount path (Task 4 step 3); `@ei/shared` bundling into eve build (Task 3 step 2); `@workflow/world-postgres` env names (Task 6 step 1); `.output/server` entry (Task 6 step 2).
