@@ -9,8 +9,8 @@
     }
   },
   "scripts": {
-    "build": "bun build ./src/index.ts --outdir ./dist --target=node && bunx tsc -p tsconfig.json --emitDeclarationOnly --noEmit false --declaration true --outDir dist",
-    "typecheck": "bunx tsc -p tsconfig.json"
+    "build": "bun build ./src/index.ts --outdir ./dist --target=node && bunx tsc -p tsconfig.json",
+    "typecheck": "bunx tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "typescript": "^5.6.0",
