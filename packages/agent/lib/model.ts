@@ -45,3 +45,31 @@ export function buildLanguageModel(
   });
   return openai.chat(src.model_id);
 }
+
+// Step-scoped resolver: a live LanguageModel returned from step.started;
+// null degrades to the gateway fallback (never throws through).
+import { getActiveModel, getProvider } from "./providers";
+import { getExecutor } from "./db";
+
+export async function resolveStepModel(env: Record<string, string | undefined>): Promise<LanguageModel | null> {
+  const ex = getExecutor();
+  if (!ex) return null;
+  try {
+    const active = await getActiveModel(ex);
+    if (!active) return null;
+    const provider = await getProvider(ex, active.provider_id);
+    if (!provider || !provider.enabled) return null;
+    return buildLanguageModel(
+      {
+        provider_id: provider.id,
+        base_url: provider.base_url,
+        key_env: provider.key_env,
+        headers_json: provider.headers_json,
+        model_id: active.model_id,
+      },
+      env,
+    );
+  } catch {
+    return null;
+  }
+}
