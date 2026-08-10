@@ -1,0 +1,19 @@
+{
+  "name": "@ei/shared",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target=node && bunx tsc -p tsconfig.json --emitDeclarationOnly --noEmit false --declaration true --outDir dist",
+    "typecheck": "bunx tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/node": "^24.0.0"
+  }
+}

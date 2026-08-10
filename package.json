@@ -1,0 +1,25 @@
+{
+  "name": "ei",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "packageManager": "bun@1.3.14",
+  "scripts": {
+    "dev:agent": "bun run --cwd packages/agent dev",
+    "build:agent": "bun run --cwd packages/agent build",
+    "start:agent": "bun run --cwd packages/agent start",
+    "typecheck:agent": "bun run --cwd packages/agent typecheck",
+    "typecheck:shared": "bun run --cwd packages/shared typecheck",
+    "typecheck": "bun run typecheck:shared && bun run typecheck:agent",
+    "build:shared": "bun run --cwd packages/shared build",
+    "dev:connector": "bun run --cwd packages/connector dev"
+  },
+  "overrides": {
+    "ai": "^7.0.38"
+  },
+  "engines": {
+    "node": "24.x"
+  }
+}
