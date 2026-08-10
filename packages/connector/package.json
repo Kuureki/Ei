@@ -2,11 +2,16 @@
   "name": "@ei/connector",
   "private": true,
   "type": "module",
-  "engines": { "node": "24.x" },
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "build": "bun build ./src/index.ts --target=bun --outfile=./dist/index.js",
     "start": "bun ./dist/index.js",
     "typecheck": "bunx tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14"
   }
 }
