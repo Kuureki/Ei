@@ -116,6 +116,19 @@ create table if not exists ei_schedule_runs (
   error text,
   session_id text
 );
+create table if not exists ei_issues (
+  id          text primary key,
+  schedule_id text not null references ei_schedules(id) on delete cascade,
+  kind        text not null,
+  severity    text not null,
+  status      text not null default 'open',
+  root_cause  text not null,
+  detail      jsonb not null default '{}'::jsonb,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  resolved_at timestamptz,
+  resolved_by text
+);
 `;
 
 export async function migrate(ex: SqlExecutor): Promise<void> {
