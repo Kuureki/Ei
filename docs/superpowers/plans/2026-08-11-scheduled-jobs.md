@@ -1901,6 +1901,11 @@ git commit -m "feat: schedule management tools for the agent"
 
 Append under `## 7. Operations` in `README.md`:
 
+> **Task 8 self-review (implementation-time findings):**
+> 1. This README has no `## 7. Operations` heading — the section now lives between "Error handling (what's built in)" and "## Evals".
+> 2. **Pre-existing build blocker surfaced:** `eve build`/`eve dev` failed on the `@firecrawl/anydoc` native `.node` binaries (added by the earlier `parse_document` slice). Fixed with `build.externalDependencies` in `agent/agent.ts` (the anydoc platform packages now stay external). Without this, the dispatcher schedule could never be compiled or registered.
+> 3. Verified the dispatcher registers: the clean `eve build` emits `schedules/dispatcher.ts` in the discovery manifest (0 diagnostics) and compiles `eve.schedule.mjs` (`schedules/dispatcher.ts → dispatcher`); boot smoke (`eve start`) is clean. The dev dispatch route mounts only under `eve dev`, which now also builds cleanly.
+
 ```md
 ### Scheduled jobs
 

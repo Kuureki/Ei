@@ -192,6 +192,15 @@ Root scripts: `dev:agent`, `build:agent`, `start:agent`, `typecheck`,
   provider means the agent answers on the fallback model instead of failing
   the turn.
 
+## Scheduled jobs
+
+The agent can create, run, and report on scheduled jobs from plain Discord
+(say "remind me tomorrow at 9am…" or "digest my calendar every weekday").
+Jobs are stored in `ei_schedules` + `ei_schedule_runs` (same Postgres), run
+on a minute-tick dispatcher (`agent/schedules/dispatcher.ts`), and deliver
+their reply to the owning DM. Ask "what did <job> do?" and the agent reports
+from `ei_schedule_runs`. Jobs that fail 3 consecutive runs pause themselves.
+
 ## Evals
 
 ```bash

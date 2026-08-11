@@ -19,6 +19,13 @@ if (shouldStartGateway(process.env)) {
 }
 
 export default defineAgent({
+  build: {
+    // Native .node binaries (anydoc) must stay external: bundling them fails.
+    externalDependencies: [
+      "@firecrawl/anydoc-linux-x64-gnu",
+      "@firecrawl/anydoc-linux-x64-musl",
+    ],
+  },
   model: defineDynamic({
     fallback: "anthropic/claude-sonnet-5",
     events: {
