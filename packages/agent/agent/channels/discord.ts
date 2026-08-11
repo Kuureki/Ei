@@ -1,5 +1,7 @@
 import { defineChannel, POST } from "eve/channels";
-import { decodeToken, encodeToken, splitReply } from "@ei/shared";
+import { decodeToken, encodeToken, splitReply, type DiscordAddress } from "@ei/shared";
+import { getExecutor } from "../../lib/db";
+import { completeRun } from "../../lib/schedule-store";
 
 interface InboundFile {
   name: string;
@@ -59,18 +61,44 @@ export default defineChannel({
   ],
 
   events: {
-    "message.completed"(eventData, channel) {
+    "message.completed"(eventData, channel, ctx) {
       const addr = channel.continuation ? decodeToken(channel.continuation.token) : null;
       if (!addr) return;
+      if (addr.scheduleRunId) {
+        const ex = getExecutor();
+        if (ex) {
+          void completeRun(ex, addr.scheduleRunId, {
+            status: "succeeded",
+            output: (eventData.message ?? "").slice(0, 4000),
+            sessionId: ctx?.session?.id,
+          }).catch(() => {});
+        }
+      }
       const message: string | null = eventData.message;
       if (!message) return;
       void deliverToDiscord(addr, message);
+    },
+    "turn.failed"(eventData, channel, ctx) {
+      const addr = channel.continuation ? decodeToken(channel.continuation.token) : null;
+      if (!addr?.scheduleRunId) return;
+      const ex = getExecutor();
+      if (!ex) return;
+      void completeRun(ex, addr.scheduleRunId, {
+        status: "failed",
+        error: typeof eventData.message === "string" ? eventData.message.slice(0, 1000) : "turn failed",
+        sessionId: ctx?.session?.id,
+      }).catch(() => {});
     },
     "turn.started"(_eventData, channel) {
       const addr = channel.continuation ? decodeToken(channel.continuation.token) : null;
       if (!addr) return;
       void startTyping(addr);
     },
+  },
+
+  receive(input, ctx) {
+    const addr = encodeToken(input.target as unknown as DiscordAddress);
+    return ctx.from(addr).send(input.message, { auth: input.auth });
   },
 });
 

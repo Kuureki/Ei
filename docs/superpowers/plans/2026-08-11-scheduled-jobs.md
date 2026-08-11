@@ -1277,23 +1277,27 @@ receive(input, ctx) {
 
 (The channel event third argument is the `SessionContext` (`ctx`); `ctx.session.id` is the session id. Pass it only when present — `sessionId` is optional on the run row.)
 
-4. Add a `"session.failed"` handler:
+4. Add a `"turn.failed"` handler (the failure signal that carries `ctx`; `session.failed` deliberately receives no `ctx` in eve's adapter wiring):
 
 ```ts
-"session.failed"(data, channel, ctx) {
+"turn.failed"(eventData, channel, ctx) {
   const addr = channel.continuation ? decodeToken(channel.continuation.token) : null;
   if (!addr?.scheduleRunId) return;
   const ex = getExecutor();
   if (!ex) return;
   void completeRun(ex, addr.scheduleRunId, {
     status: "failed",
-    error: typeof data?.error === "string" ? data.error.slice(0, 1000) : "session failed",
+    error: typeof eventData.message === "string" ? eventData.message.slice(0, 1000) : "turn failed",
     sessionId: ctx?.session?.id,
   }).catch(() => {});
 },
 ```
 
-(`data` is the `session.failed` event data; its shape is `{ sessionId, error? }` — read `data.error` defensively.)
+(`turn.failed` data is `{ code, details?, message, sequence, turnId }` — read `eventData.message` defensively.)
+
+> **Task 5 self-review (implementation-time fixes to the plan):**
+> 1. eve's `buildAdapter` passes `ctx` to every channel event handler **except** `session.failed` (`(data, channel)` only). The plan's `session.failed(data, channel, ctx)` would be a silent no-`ctx` bug; the plan now uses `turn.failed`, which does receive `ctx.session.id`, and reads its message from `eventData.message`.
+> 2. The custom channel's receive target is untyped (`Readonly<Record<string, unknown>>`); `receive` casts via `as unknown as DiscordAddress` (the double cast is required because the shapes don't overlap).
 
 - [ ] **Step 4: Run the test**
 
