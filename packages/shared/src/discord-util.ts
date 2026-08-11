@@ -2,16 +2,21 @@ export interface DiscordAddress {
   guildId: string;
   channelId: string;
   threadId?: string;
+  scheduleRunId?: string;
 }
 
 export function encodeToken(a: DiscordAddress): string {
-  return a.threadId ? `${a.guildId}:${a.channelId}:${a.threadId}` : `${a.guildId}:${a.channelId}`;
+  const base = a.threadId ? `${a.guildId}:${a.channelId}:${a.threadId}` : `${a.guildId}:${a.channelId}`;
+  return a.scheduleRunId ? `${base}:${a.scheduleRunId}` : base;
 }
 
 export function decodeToken(token: string): DiscordAddress | null {
-  const [guildId, channelId, threadId] = token.split(":");
+  const [guildId, channelId, threadId, scheduleRunId] = token.split(":");
   if (!guildId || !channelId) return null;
-  return { guildId, channelId, threadId };
+  const out: DiscordAddress = { guildId, channelId };
+  if (threadId) out.threadId = threadId;
+  if (scheduleRunId) out.scheduleRunId = scheduleRunId;
+  return out;
 }
 
 export function splitReply(text: string, limit = 2000): string[] {
