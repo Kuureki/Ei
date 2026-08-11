@@ -1389,6 +1389,10 @@ describe("dispatcher cycle", () => {
 
 Note: the dispatcher module cannot be imported in unit tests without a running runtime (`defineSchedule` executes at import). This test drives the same core through a pure helper `runDispatchCycle(ex, opts)` that the schedule's `run` handler calls. `lib/schedule-dispatch.ts` is created in this task.
 
+> **Task 6 self-review (implementation-time fixes):**
+> 1. Auto-pause now checks the **N most recent runs** for all-failed (a success resets the streak), instead of counting *any* historical failures — the plan's `where status = 'failed'` would pause a schedule that ever failed 3 times even after recoveries.
+> 2. The auto-pause test re-dues the schedule between failing ticks (`triggerSchedule`), because `completeRun` advances `next_run_at` by the cadence after each failed run.
+
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
