@@ -201,6 +201,23 @@ on a minute-tick dispatcher (`agent/schedules/dispatcher.ts`), and deliver
 their reply to the owning DM. Ask "what did <job> do?" and the agent reports
 from `ei_schedule_runs`. Jobs that fail 3 consecutive runs pause themselves.
 
+## Self-healing & evolution
+
+Two authored schedules watch the jobs you've scheduled in Discord:
+
+- `health` (daily 09:00 UTC) assesses every enabled job and opens/resolves an
+  issue row in `ei_issues` when a job degrades (3 consecutive failures, a
+  success rate under 60%, or 14+ days without an update). Detection only: a
+  directive is posted to the job's thread, and any repair is applied by you
+  after the agent drafts options — never automatically. Jobs that fail 3
+  consecutive deliveries still pause themselves (the dispatcher brake).
+- `lineage` (weekly Mon 11:00 UTC) picks the worst-health eligible job and
+  asks the agent to draft four prompt variations (A–D). Only the job's prompt
+  ever changes, and only after you pick a variation in-thread; the pick is
+  recorded in the job's tags.
+
+Ask "what's broken?" in Discord and the agent reports from the issue state.
+
 ## Evals
 
 ```bash
