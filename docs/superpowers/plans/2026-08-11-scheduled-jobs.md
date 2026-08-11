@@ -1868,6 +1868,8 @@ cd /root/dev/projects/Ei/packages/agent && bun test tests/schedule-tools.test.ts
 
 Expected: PASS.
 
+> **Task 7 self-review:** the plan's `schedule_update` import list included `getSchedule`, which is never used — dropped from the file (no unused import). Everything else implemented verbatim; renderer tests pass and typecheck is clean.
+
 - [ ] **Step 6: Typecheck**
 
 ```bash
