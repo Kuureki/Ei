@@ -676,7 +676,7 @@ git commit -m "feat: cadence/timezone math for scheduled jobs"
   - `export async function completeRun(ex, runId: string, outcome: { status: "succeeded" | "failed" | "skipped"; output?: string; error?: string; sessionId?: string }): Promise<void>` — writes the run row's finish state and bumps `last_run_*`/`run_count` on the schedule.
   - `export async function listRuns(ex, scheduleId: string, limit = 3): Promise<RunRow[]>` — newest-first.
   - `export interface RunRow { id: string; schedule_id: string; started_at: string; finished_at: string | null; status: string; output: string | null; error: string | null; session_id: string | null }`
-  - Ids: `randomUUID()`-based (crypto, available in Node 24 + Bun). Recurrence: `each_cadence_after` in `lib/schedule-admin` recurs using `computeNextRun` — see Task 3 (`computeNextRun(...)` is the single recurrence source).
+  - Ids: `randomUUID()`-based (crypto, available in Node 24 + Bun). Recurrence: `completeRun` advances `next_run_at` to `computeNextRun(started_at, cadence, timezone)` (the single recurrence source), keeping `next_run_at` unchanged while a schedule is disabled.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -931,7 +931,9 @@ export async function createSchedule(ex: SqlExecutor, input: CreateScheduleInput
   const id = randomUUID();
   const tz = input.timezone ?? "UTC";
   const from = input.firstRunAt ? new Date(input.firstRunAt) : new Date();
-  const next = computeNextRun(from, input.cadence, tz);
+  // firstRunAt (when given) is the trigger instant verbatim; without it the
+  // schedule is due immediately on the next tick. computeNextRun only drives
+  // recurrence (see completeRun).
   const tags = input.tags ?? [];
   await ex.query(
     `insert into ei_schedules
@@ -945,7 +947,7 @@ export async function createSchedule(ex: SqlExecutor, input: CreateScheduleInput
       input.cadence.kind === "every_minutes" ? input.cadence.everyMinutes : null,
       encodeCadenceValue(input.cadence),
       tz,
-      next.toISOString(),
+      from.toISOString(),
       input.owner.principalId,
       input.owner.guildId,
       input.owner.channelId,
@@ -1126,6 +1128,11 @@ function encodeCadenceValue(c: ScheduledCadenceInput): string | null {
 ```
 
 The `cadenceOf(row)` decode in `Task 4` reads back `ScheduledCadenceInput` from the columns when hydrating a `ClaimedSchedule`. `Task 3` "Note on CLI-`parseSchedulePrompt`" is not needed by this task — the tools in Task 7 parse via `parseSchedulePrompt` fallback only.
+
+> **Task 4 self-review (implementation-time fixes):**
+> 1. `createSchedule` no longer runs `firstRunAt` through `computeNextRun`. `firstRunAt` is the trigger instant verbatim (the plan's `claimDue` test passes a past `firstRunAt` and expects it claimed); without it the schedule is due on the next tick (`next_run_at = now()`).
+> 2. `completeRun` advances recurrence: `next_run_at = computeNextRun(started_at, cadence, timezone)`, kept `next_run_at` on disabled schedules. The plan referenced `each_cadence_after` but never defined it; without this every recurring job would run exactly once.
+> Both are covered by the Task 4 tests (`claimDue` claims the past-`firstRunAt` row; `completeRun` test relies on a no-`firstRunAt` schedule being due immediately).
 
 - [ ] **Step 4: Run test to verify it passes**
 
