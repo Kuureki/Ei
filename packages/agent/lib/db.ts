@@ -81,6 +81,41 @@ create table if not exists ei_config (
   value jsonb not null,
   version bigint not null default 0
 );
+create table if not exists ei_schedules (
+  id text primary key,
+  name text not null,
+  prompt text not null,
+  cadence text not null,
+  every_minutes int,
+  cron text,
+  timezone text not null default 'UTC',
+  enabled boolean not null default true,
+  next_run_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  last_run_at timestamptz,
+  last_run_status text,
+  last_run_output text,
+  run_count bigint not null default 0,
+  locked_until timestamptz,
+  locked_by text,
+  owner_discord_id text not null,
+  guild_id text not null,
+  dm_channel_id text not null,
+  dm_thread_id text,
+  tags jsonb not null default '[]'::jsonb,
+  created_by text
+);
+create table if not exists ei_schedule_runs (
+  id text primary key,
+  schedule_id text not null references ei_schedules(id) on delete cascade,
+  started_at timestamptz not null default now(),
+  finished_at timestamptz,
+  status text not null,
+  output text,
+  error text,
+  session_id text
+);
 `;
 
 export async function migrate(ex: SqlExecutor): Promise<void> {

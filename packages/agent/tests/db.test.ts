@@ -40,4 +40,27 @@ describe("migrate + schema", () => {
     const left = await ex.query(`select count(*)::int as n from ei_models_cache`);
     expect(left.rows[0].n).toBe(0);
   });
+
+  test("creates ei_schedules and ei_schedule_runs with references", async () => {
+    const ex = await memExecutor();
+    await migrate(ex);
+
+    await ex.query(
+      `insert into ei_schedules
+        (id, name, prompt, cadence, every_minutes, next_run_at, owner_discord_id, guild_id, dm_channel_id)
+       values ($1, $2, $3, $4, $5, now(), $6, $7, $8)`,
+      ["s1", "remind", "Call the dentist", "every_minutes", 30, "u1", "g1", "c1"],
+    );
+    await ex.query(
+      `insert into ei_schedule_runs (id, schedule_id, status, output) values ('r1', 's1', 'succeeded', 'done')`,
+    );
+    const runs = await ex.query(`select * from ei_schedule_runs where schedule_id = $1`, ["s1"]);
+    expect(runs.rows).toHaveLength(1);
+    expect(runs.rows[0].status).toBe("succeeded");
+
+    // cascade delete: run rows follow the schedule
+    await ex.query(`delete from ei_schedules where id = 's1'`);
+    const left = await ex.query(`select count(*)::int as n from ei_schedule_runs`);
+    expect(left.rows[0].n).toBe(0);
+  });
 });
