@@ -3,10 +3,13 @@ import { always } from "eve/tools/approval";
 import { z } from "zod";
 import { getExecutor } from "../../lib/db";
 import { parseSchedulePrompt, formatNextRun, validateCadence, type ScheduledCadenceInput } from "../../lib/schedule-admin";
-import { updateSchedule } from "../../lib/schedule-store";
+import { appendLineageTag, updateSchedule } from "../../lib/schedule-store";
+
+const LINEAGE_VARIATION = z.enum(["A", "B", "C", "D"]);
 
 export default defineTool({
-  description: "Change, pause, or resume a scheduled job. Updates cadence/timezone and recomputes the next run.",
+  description:
+    "Change, pause, or resume a scheduled job. Updates cadence/timezone and recomputes the next run. Pass lineage: { variation } when applying a chosen lineage prompt variation so the pick is recorded.",
   inputSchema: z.object({
     id: z.string().min(1),
     name: z.string().min(1).max(100).optional(),
@@ -19,6 +22,7 @@ export default defineTool({
     timezone: z.string().optional(),
     enabled: z.boolean().optional(),
     tags: z.array(z.string()).optional(),
+    lineage: z.object({ variation: LINEAGE_VARIATION }).optional(),
   }),
   approval: always(),
   async execute(input) {
@@ -48,6 +52,23 @@ export default defineTool({
       tags: input.tags,
     });
     if (!row) throw new Error("No schedule with that id/name.");
+    if (input.lineage) {
+      const marked = await appendLineageTag(ex, row.id, input.lineage.variation);
+      if (!marked) throw new Error("Could not record the lineage pick.");
+      return {
+        updated: true,
+        nextRun: formatNextRun(new Date(marked.next_run_at), marked.timezone),
+        lineage: { generation: nextGenerationOf(marked.tags), variation: input.lineage.variation },
+      };
+    }
     return { updated: true, nextRun: formatNextRun(new Date(row.next_run_at), row.timezone) };
   },
 });
+
+function nextGenerationOf(tags: unknown): number | null {
+  if (!Array.isArray(tags)) return null;
+  const gens = tags
+    .map((t) => (t && typeof t === "object" && "lineage" in t ? (t as { lineage?: { generation?: unknown } }).lineage?.generation : null))
+    .filter((g): g is number => typeof g === "number");
+  return gens.length ? Math.max(...gens) : null;
+}

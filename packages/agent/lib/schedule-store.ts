@@ -2,6 +2,7 @@
 // Atomically leases due rows so overlapping dispatcher ticks never claim twice.
 import { randomUUID } from "node:crypto";
 import { jsonValue, type SqlExecutor } from "./db";
+import { nextLineageGeneration } from "./lineage";
 import { computeNextRun, validateCadence, type ScheduledCadenceInput } from "./schedule-admin";
 
 export interface ScheduleRow {
@@ -301,6 +302,26 @@ export async function listRuns(ex: SqlExecutor, scheduleId: string, limit = 3): 
     error: row.error == null ? null : String(row.error),
     session_id: row.session_id == null ? null : String(row.session_id),
   }));
+}
+
+// Append a {lineage: {generation, variation, applied_at}} marker to the
+// schedule's tags jsonb (autoresearch lineage bookkeeping).
+export async function appendLineageTag(
+  ex: SqlExecutor,
+  idOrName: string,
+  variation: string,
+): Promise<ScheduleRow | null> {
+  const existing = await getSchedule(ex, idOrName);
+  if (!existing) return null;
+  const tags = Array.isArray(existing.tags) ? (existing.tags as unknown[]) : [];
+  tags.push({
+    lineage: { generation: nextLineageGeneration(existing.tags), variation, applied_at: new Date().toISOString() },
+  });
+  await ex.query(
+    `update ei_schedules set tags = $1::jsonb, updated_at = now() where id = $2`,
+    [JSON.stringify(tags), existing.id],
+  );
+  return getSchedule(ex, existing.id);
 }
 
 // Serialize a cadence into `every_minutes`/`cron` columns:
