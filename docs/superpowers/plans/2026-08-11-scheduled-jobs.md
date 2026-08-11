@@ -312,9 +312,10 @@ git commit -m "feat: ei_schedules and ei_schedule_runs tables"
 - Produces (later tasks depend on these exact names/shapes):
   - `export type ScheduleCadence =
       | { kind: "every_minutes"; everyMinutes: number }
-      | { kind: "daily_at"; time: string; weekly?: number[] }
+      | { kind: "daily_at"; time: string }
+      | { kind: "weekly_on"; time: string; weekly: number[] }
       | { kind: "monthly_on"; dayOfMonth: number; time: string }`
-    `weekly?: number[]` is 0-6 (0=Sunday) weekdays to run (absent = every day). `monthlyOn-dayOfMonth` is 1-31; days beyond month length clamp to the last day.
+    `weekly: number[]` is 0-6 (0=Sunday) weekdays to run (at least one required). `monthlyOn-dayOfMonth` is 1-31; days beyond month length clamp to the last day. (`weekly_on` is its own kind so it round-trips 1:1 with the `cadence` column and `cadenceOf`; `daily_at` runs every day.)
   - `export interface ScheduledCadenceInput` — the discriminated union above.
   - `export function validateCadence(input: ScheduledCadenceInput): void` — throws `Error` with a clear message on invalid input (`everyMinutes` not int/≤0, bad `time` string, bad weekday, bad dayOfMonth).
   - `export function computeNextRun(from: Date, input: ScheduledCadenceInput, timezone: string): Date` — returns the next run strictly after `from`, computed in the given IANA timezone via `Intl` (clamps month-end for `monthly_on`). `from` is an ISO/epoch-equivalent `Date`; the return is an absolute `Date`.
@@ -445,10 +446,11 @@ export function validateCadence(input: ScheduledCadenceInput): void {
       return;
     case "daily_at":
       if (!TIME_RE.test(input.time)) throw new Error("time must be HH:MM in 24h format");
-      if (input.weekly !== undefined) {
-        for (const d of input.weekly) {
-          if (!Number.isInteger(d) || d < 0 || d > 6) throw new Error("weekday must be 0-6 (0=Sunday)");
-        }
+      return;
+    case "weekly_on":
+      if (!TIME_RE.test(input.time)) throw new Error("time must be HH:MM in 24h format");
+      if (!input.weekly?.length || input.weekly.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) {
+        throw new Error("weekly must be a non-empty list of 0-6 (0=Sunday)");
       }
       return;
     case "monthly_on":
