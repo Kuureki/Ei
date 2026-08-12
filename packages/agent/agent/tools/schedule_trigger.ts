@@ -10,7 +10,6 @@ export default defineTool({
   approval: always(),
   async execute(input) {
     const ex = getExecutor();
-    if (!ex) throw new Error("scheduled jobs need Postgres");
     const res = await triggerSchedule(ex, input.id);
     return res.ok
       ? { triggered: true, message: `"${res.name}" will run within a minute.` }

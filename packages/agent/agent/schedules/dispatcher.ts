@@ -7,7 +7,6 @@ export default defineSchedule({
   cron: "* * * * *",
   async run({ to, waitUntil, appAuth }) {
     const ex = getExecutor();
-    if (!ex) return; // Postgres absent: nothing to dispatch; agent still boots.
     await waitUntil(
       runDispatchCycle(ex, {
         now: new Date(),

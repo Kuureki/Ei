@@ -65,13 +65,16 @@ export default defineChannel({
       const addr = channel.continuation ? decodeToken(channel.continuation.token) : null;
       if (!addr) return;
       if (addr.scheduleRunId) {
-        const ex = getExecutor();
-        if (ex) {
-          void completeRun(ex, addr.scheduleRunId, {
+        // A DB hiccup must not take message delivery down with it: only the
+        // run-row write is skipped if getExecutor() or completeRun errors.
+        try {
+          void completeRun(getExecutor(), addr.scheduleRunId, {
             status: "succeeded",
             output: (eventData.message ?? "").slice(0, 4000),
             sessionId: ctx?.session?.id,
           }).catch(() => {});
+        } catch {
+          // no run row this turn; delivery continues
         }
       }
       const message: string | null = eventData.message;
@@ -81,9 +84,7 @@ export default defineChannel({
     "turn.failed"(eventData, channel, ctx) {
       const addr = channel.continuation ? decodeToken(channel.continuation.token) : null;
       if (!addr?.scheduleRunId) return;
-      const ex = getExecutor();
-      if (!ex) return;
-      void completeRun(ex, addr.scheduleRunId, {
+      void completeRun(getExecutor(), addr.scheduleRunId, {
         status: "failed",
         error: typeof eventData.message === "string" ? eventData.message.slice(0, 1000) : "turn failed",
         sessionId: ctx?.session?.id,

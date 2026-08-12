@@ -22,7 +22,6 @@ export default defineChannel({
       const ownerId = process.env.AGENT_OWNER_DISCORD_ID ?? "";
       if (ownerId && interaction.userId !== ownerId) return new Response("ignored", { status: 200 });
       const ex = getExecutor();
-      if (!ex) return new Response("no database", { status: 200 }); // config surface unavailable; the agent still runs on the fallback model
       await migrate(ex).catch(() => {});
       await serviceAdminEvent(interaction, {
         appId: process.env.DISCORD_APP_ID ?? "",

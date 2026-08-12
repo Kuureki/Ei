@@ -10,7 +10,6 @@ export default defineTool({
   approval: always(),
   async execute(input) {
     const ex = getExecutor();
-    if (!ex) throw new Error("scheduled jobs need Postgres");
     const row = await deleteSchedule(ex, input.id);
     if (!row) return { deleted: false, message: "No schedule with that id/name." };
     return { deleted: true, message: `Deleted "${row.name}".` };

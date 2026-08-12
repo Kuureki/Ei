@@ -37,9 +37,14 @@ export function poolExecutor(pool: pg.Pool): SqlExecutor {
 let shared: pg.Pool | null = null;
 let sharedUrl: string | undefined;
 
-export function getExecutor(): SqlExecutor | null {
-  const url = process.env.WORKFLOW_POSTGRES_URL ?? process.env.DATABASE_URL;
-  if (!url) return null;
+export function getPostgresUrl(env: Record<string, string | undefined> = process.env): string {
+  const url = env.WORKFLOW_POSTGRES_URL ?? env.DATABASE_URL;
+  if (!url) throw new Error("WORKFLOW_POSTGRES_URL is required (set WORKFLOW_POSTGRES_URL or DATABASE_URL)");
+  return url;
+}
+
+export function getExecutor(): SqlExecutor {
+  const url = getPostgresUrl();
   if (!shared || sharedUrl !== url) {
     shared?.end().catch(() => {});
     shared = createPool(url);

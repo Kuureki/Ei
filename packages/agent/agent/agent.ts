@@ -3,10 +3,15 @@ import { getExecutor, migrate } from "../lib/db";
 import { shouldStartGateway, startGateway } from "../lib/gateway/index";
 import { resolveStepModel } from "../lib/model";
 
-// Boot migration is idempotent and best-effort; the agent must boot without Postgres.
+// Postgres is required. migrate() connects and creates/verifies the tables;
+// failure here is fatal so systemd restarts (same shape as the gateway fatal).
 void (async () => {
-  const ex = getExecutor();
-  if (ex) await migrate(ex).catch((err) => console.error("ei migrate failed", err));
+  try {
+    await migrate(getExecutor());
+  } catch (err) {
+    console.error("postgres boot failed", err);
+    process.exit(1);
+  }
 })();
 
 // In-process Discord gateway (messages -> /intake, interactions -> /interact).
@@ -34,12 +39,7 @@ export default defineAgent({
   }),
   experimental: {
     workflow: {
-      // Production: set WORKFLOW_TARGET_WORLD=@workflow/world-postgres (and
-      // WORKFLOW_POSTGRES_URL). Defaults to the zero-DB local world.
-      world:
-        process.env.WORKFLOW_TARGET_WORLD === "@workflow/world-postgres"
-          ? "@workflow/world-postgres"
-          : "@workflow/world-local",
+      world: "@workflow/world-postgres", // always; Postgres is required (§ spec 2026-08-12)
     },
   },
 });

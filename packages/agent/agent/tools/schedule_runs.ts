@@ -12,7 +12,6 @@ export default defineTool({
   }),
   async execute(input) {
     const ex = getExecutor();
-    if (!ex) throw new Error("scheduled jobs need Postgres");
     const rows = await listRuns(ex, input.id, input.limit ?? 3);
     return { runs: renderScheduleRuns(rows.map((r) => ({ status: r.status, startedAt: r.started_at, finishedAt: r.finished_at, output: r.output }))) };
   },

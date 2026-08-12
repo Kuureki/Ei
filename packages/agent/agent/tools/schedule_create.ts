@@ -23,7 +23,6 @@ export default defineTool({
   approval: always(),
   async execute(input, ctx) {
     const ex = getExecutor();
-    if (!ex) throw new Error("scheduled jobs need Postgres (WORKFLOW_POSTGRES_URL)");
     let cadence: ScheduledCadenceInput;
     if (input.cadenceText) {
       const parsed = parseSchedulePrompt(input.cadenceText);

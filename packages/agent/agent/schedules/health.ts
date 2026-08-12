@@ -11,7 +11,6 @@ export default defineSchedule({
   cron: "0 9 * * *",
   async run({ to, waitUntil, appAuth }) {
     const ex = getExecutor();
-    if (!ex) return; // Postgres absent: nothing to assess; agent still boots.
     await waitUntil(
       (async () => {
         const before = (await readGate(ex, "health:last_report")) as { hash?: unknown } | null;

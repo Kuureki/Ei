@@ -11,7 +11,6 @@ export default defineSchedule({
   cron: "0 11 * * 1",
   async run({ to, waitUntil, appAuth }) {
     const ex = getExecutor();
-    if (!ex) return; // Postgres absent: nothing to improve; agent still boots.
     await waitUntil(
       (async () => {
         const pendingRaw = (await readGate(ex, "lineage:pending")) as { scheduleId?: string; at?: string } | null;

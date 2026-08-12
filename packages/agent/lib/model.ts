@@ -52,9 +52,8 @@ import { getActiveModel, getProvider } from "./providers";
 import { getExecutor } from "./db";
 
 export async function resolveStepModel(env: Record<string, string | undefined>): Promise<LanguageModel | null> {
-  const ex = getExecutor();
-  if (!ex) return null;
   try {
+    const ex = getExecutor();
     const active = await getActiveModel(ex);
     if (!active) return null;
     const provider = await getProvider(ex, active.provider_id);

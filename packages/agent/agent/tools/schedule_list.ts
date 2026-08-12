@@ -10,7 +10,6 @@ export default defineTool({
   inputSchema: z.object({}),
   async execute() {
     const ex = getExecutor();
-    if (!ex) throw new Error("scheduled jobs need Postgres");
     const rows = await listSchedules(ex);
     return { schedules: renderScheduleList(rows.map((r) => ({ id: r.id, name: r.name, prompt: r.prompt, cadence: r.cadence, nextRun: formatNextRun(new Date(r.next_run_at), r.timezone), enabled: r.enabled, lastRunStatus: r.last_run_status }))) };
   },

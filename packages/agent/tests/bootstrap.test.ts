@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { runtimeIntakeUrl, shouldStartGateway } from "../lib/gateway/index";
+import { getPostgresUrl } from "../lib/db";
 import { resolveStepModel } from "../lib/model";
 
 describe("gateway boot guard", () => {
@@ -17,5 +18,16 @@ describe("gateway boot guard", () => {
 describe("resolveStepModel", () => {
   test("returns null when no database is configured (graceful fallback)", async () => {
     expect(await resolveStepModel({})).toBeNull();
+  });
+});
+
+describe("db contract", () => {
+  test("getPostgresUrl prefers WORKFLOW_POSTGRES_URL, falls back to DATABASE_URL", () => {
+    expect(getPostgresUrl({ WORKFLOW_POSTGRES_URL: "pg://a", DATABASE_URL: "pg://b" })).toBe("pg://a");
+    expect(getPostgresUrl({ DATABASE_URL: "pg://b" })).toBe("pg://b");
+  });
+  test("getPostgresUrl throws when no URL is configured", () => {
+    expect(() => getPostgresUrl({})).toThrow(/WORKFLOW_POSTGRES_URL is required/);
+    expect(() => getPostgresUrl()).toThrow(/WORKFLOW_POSTGRES_URL is required/);
   });
 });
