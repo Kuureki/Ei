@@ -124,12 +124,33 @@ counts by source, and marks the active one.
 
 - Logs: `journalctl -u ei -f`.
 - Upgrade: `git pull && bun install && doppler run -- bunx eve build` then
-  restart the unit.
+  restart the unit. `ei upgrade` automates this; `ei status` shows the
+  result of both.
 - The gateway logs fatal close codes and exits for systemd to restart; the
   agent answers on the fallback model when the active provider is
   unavailable.
 
-## 8. Testing
+## 8. CLI
+
+`ei` is a compiled, self-updating command line for operating the agent:
+
+    ei setup     bootstrap a host (doppler, deps, build, register, systemd)
+    ei upgrade   self-update the binary, then advance the checkout to the
+                 latest tag (install, build, re-register, restart, health)
+    ei status    health card — agent, systemd, model, providers, schedules
+    ei logs      tail/follow the systemd unit
+    ei provider  list | test | refresh | use the active model off-Discord
+    ei evals     run the eval suite under doppler
+    ei doctor    preflight report (never mutates)
+
+Runtime from source: `bun run cli -- <cmd>`. Releases build
+`ei-linux-x64` / `ei-linux-arm64` binaries in GitHub Actions on `v*` tags;
+`ei upgrade` self-replaces the binary and pulls the agent from git.
+
+All commands support `--dry-run` (plan only) and `--json` (machine output),
+and are covered by `bun test` (`packages/agent/cli/**/*.test.ts`).
+
+## 9. Testing
 
 ```bash
 cd packages/agent
@@ -138,7 +159,7 @@ bun run typecheck        # strict tsc
 ../scripts/eval-ci.sh    # eve evals (needs Doppler keys; sets EVE_GATEWAY_DISABLED)
 ```
 
-## 9. Security
+## 10. Security
 
 - Keys are referenced **by name** only — `providers.key_env` stores the
   Doppler var name, never the value; plaintext never lands in Postgres,
@@ -149,7 +170,7 @@ bun run typecheck        # strict tsc
   user id.
 - No public inbound endpoint (gateway connects out).
 
-## 10. Scaling / future
+## 11. Scaling / future
 
 - `WORKFLOW_POSTGRES_WORKER_CONCURRENCY` tunes the queue worker pool.
 - `EVE_RUNTIME_URL` allows re-extracting the gateway out-of-process later

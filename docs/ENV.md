@@ -44,3 +44,11 @@ Never commit values; the repo contains names only.
 - `doppler run -- bunx eve start`
 - `doppler secrets set PROVIDER_GROQ_API_KEY=sk-...`
 - `doppler secrets get WORKFLOW_POSTGRES_URL`
+
+## CLI
+
+`ei` (see README) reads `$XDG_CONFIG_HOME/ei/config.json`
+(`checkoutPath`, `unitName`, `dopplerProject`), written by `ei setup`.
+It shells to `doppler`, `git`, `bun`, `systemctl`, and (for the unit steps)
+`sudo`. Secret values are never printed; `ei status`/`ei provider` read
+`WORKFLOW_POSTGRES_URL` from doppler to query the agent tables directly.

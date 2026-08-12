@@ -69,9 +69,11 @@ async function invoke(parsed: ParsedArgs): Promise<number> {
       const { upgrade } = await import("./upgrade");
       return upgrade(cfg, parsed.flags);
     }
-    case "evals":
-      // Implemented in a later task; fail loudly until then.
-      throw new Error(`command "${parsed.command}" not implemented yet`);
+    case "evals": {
+      const cfg = await readConfig(parsed.flags);
+      const { evals } = await import("./commands/evals");
+      return evals(cfg, parsed.flags);
+    }
     default:
       throw new ArgsError(`unknown command "${parsed.command}"`);
   }
