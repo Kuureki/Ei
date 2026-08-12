@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "eve build",
+    "build:cli": "bun build --compile --target bun-linux-x64 --outfile ei-linux-x64 cli/main.ts",
     "cli": "bun run cli/main.ts",
     "dev": "eve dev",
     "start": "eve start",

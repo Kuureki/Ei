@@ -1,0 +1,29 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  build:
+    strategy:
+      matrix:
+        target: [bun-linux-x64, bun-linux-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - name: Stamp version
+        run: sed -i "s/export const EI_VERSION = .*/export const EI_VERSION = \"${{ github.ref_name }}\";/" packages/agent/cli/build/version.ts
+      - name: Compile
+        working-directory: packages/agent
+        run: bun build --compile --target ${{ matrix.target }} --outfile ei-${{ matrix.target }} cli/main.ts
+      - name: Smoke test
+        working-directory: packages/agent
+        run: ./ei-${{ matrix.target }} version && ./ei-${{ matrix.target }} doctor --json --dry-run | head -c 2000
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: packages/agent/ei-${{ matrix.target }}

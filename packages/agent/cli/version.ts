@@ -37,3 +37,34 @@ export function platformTarget(): PlatformTarget {
 export function releaseAssetName(target: PlatformTarget): string {
   return `ei-${target.replace("bun-", "")}`;
 }
+
+export interface ReleaseInfo {
+  tag: string;
+  assets: Record<string, string>;
+}
+
+type FetchLike = (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => Promise<Response>;
+
+export async function latestRelease(opts: { fetchImpl?: FetchLike } = {}): Promise<ReleaseInfo> {
+  const f = opts.fetchImpl ?? fetch;
+  const res = await f("https://api.github.com/repos/Kuureki/Ei/releases/latest", {
+    headers: { accept: "application/vnd.github+json", "user-agent": "ei-cli" },
+  });
+  if (!res.ok) throw new Error(`GitHub releases: HTTP ${res.status}`);
+  const json = (await res.json()) as {
+    tag_name?: unknown;
+    assets?: Array<{ name?: unknown; browser_download_url?: unknown }>;
+  };
+  const tag = typeof json.tag_name === "string" ? json.tag_name : "v0.0.0";
+  const assets: Record<string, string> = {};
+  for (const a of json.assets ?? []) {
+    if (typeof a.name === "string" && typeof a.browser_download_url === "string") {
+      assets[a.name] = a.browser_download_url;
+    }
+  }
+  return { tag, assets };
+}
+
+export function releaseUrl(tag: string): string {
+  return `https://github.com/Kuureki/Ei/releases/tag/${tag}`;
+}
