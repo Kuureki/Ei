@@ -14,8 +14,8 @@ Never commit values; the repo contains names only.
 | `AGENT_OWNER_GUILD_ID` | Guild for guild-scoped command registration |
 | `EVE_CONNECTOR_SECRET` | Shared header for the loopback intake + interact routes |
 | `INNERNET_KEY` | innernet.live memory MCP key |
-| `WORKFLOW_POSTGRES_URL` | Postgres connection string (workflow world + ei_* tables) |
-| `PROVIDER_<NAME>_API_KEY` | One per BYOK provider; the name is stored in `ei_providers.key_env` |
+| `WORKFLOW_POSTGRES_URL` | Postgres connection string (required; workflow world + agent tables) |
+| `PROVIDER_<NAME>_API_KEY` | One per BYOK provider; the name is stored in `providers.key_env` |
 | Whisper key (if used) | For the transcribe tool |
 
 ## Non-secret (also set in Doppler)
@@ -23,7 +23,6 @@ Never commit values; the repo contains names only.
 | Name | Values / notes |
 | --- | --- |
 | `PORT` | `3000` (default) |
-| `WORKFLOW_TARGET_WORLD` | `@workflow/world-postgres` for the durable world |
 | `WORKFLOW_POSTGRES_JOB_PREFIX` | `ei` |
 | `WORKFLOW_POSTGRES_WORKER_CONCURRENCY` | optional queue worker count |
 | `EVE_RUNTIME_URL` | optional; defaults to loopback `http://127.0.0.1:${PORT}` |

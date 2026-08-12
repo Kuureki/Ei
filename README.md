@@ -18,8 +18,8 @@ One process. The eve agent (Node 24) hosts:
   `WebSocket` client (heartbeat/resume/backoff) connected **out** to
   `wss://gateway.discord.gg`. It filters to the single owner, downloads
   attachments, and forwards to the in-process loopback routes.
-- **Provider registry + ops** — `ei_providers`, `ei_models_cache`, and
-  `ei_config` tables in the same Postgres as the workflow world. Slash
+- **Provider registry + ops** — `providers`, `models_cache`, and
+  `config` tables in the same Postgres as the workflow world. Slash
   commands manage providers, model discovery (`/v1/models` + models.dev),
   testing, refresh, and the active model.
 - **Dynamic model resolution** — a `defineDynamic` fallback
@@ -42,9 +42,10 @@ memory-core design is in
 - Node 24+ (the eve server runtime).
 - Bun 1.3.14 (package manager / task runner / tooling).
 - Doppler CLI with a project (dev and prod configs).
-- Postgres reachable via `WORKFLOW_POSTGRES_URL` for the durable world and
-  the `ei_*` tables (optional for local dev; the agent boots without it on
-  the zero-DB local world).
+- Postgres reachable via `WORKFLOW_POSTGRES_URL` (required — the agent fails
+  fast at boot without it). The same database hosts the workflow world
+  (`workflow` schema) and the agent's tables (`providers`, `models_cache`,
+  `config`, `schedules`, `schedule_runs`, `issues`).
 
 ## 3. Setup
 
@@ -125,7 +126,8 @@ counts by source, and marks the active one.
 - Upgrade: `git pull && bun install && doppler run -- bunx eve build` then
   restart the unit.
 - The gateway logs fatal close codes and exits for systemd to restart; the
-  agent itself degrades when Postgres or the active provider is unavailable.
+  agent answers on the fallback model when the active provider is
+  unavailable.
 
 ## 8. Testing
 
@@ -138,7 +140,7 @@ bun run typecheck        # strict tsc
 
 ## 9. Security
 
-- Keys are referenced **by name** only — `ei_providers.key_env` stores the
+- Keys are referenced **by name** only — `providers.key_env` stores the
   Doppler var name, never the value; plaintext never lands in Postgres,
   Discord, or the repo.
 - Command replies are ephemeral; outbound replies never ping
@@ -188,25 +190,25 @@ Root scripts: `dev:agent`, `build:agent`, `start:agent`, `typecheck`,
 - Gateway heartbeat/resume with backoff reconnect; fatal close codes exit for
   systemd to restart.
 - HTTP 429 throttling on outbound REST is retried with `retry_after`.
-- Every DB touch degrades: no Postgres, no provider key, or a failing
-  provider means the agent answers on the fallback model instead of failing
-  the turn.
+- Every DB touch is non-fatal after boot: no provider key, a failing
+  provider, or a Postgres hiccup means the agent answers on the fallback
+  model instead of failing the turn (boot itself still requires Postgres).
 
 ## Scheduled jobs
 
 The agent can create, run, and report on scheduled jobs from plain Discord
 (say "remind me tomorrow at 9am…" or "digest my calendar every weekday").
-Jobs are stored in `ei_schedules` + `ei_schedule_runs` (same Postgres), run
+Jobs are stored in `schedules` + `schedule_runs` (same Postgres), run
 on a minute-tick dispatcher (`agent/schedules/dispatcher.ts`), and deliver
 their reply to the owning DM. Ask "what did <job> do?" and the agent reports
-from `ei_schedule_runs`. Jobs that fail 3 consecutive runs pause themselves.
+from `schedule_runs`. Jobs that fail 3 consecutive runs pause themselves.
 
 ## Self-healing & evolution
 
 Two authored schedules watch the jobs you've scheduled in Discord:
 
 - `health` (daily 09:00 UTC) assesses every enabled job and opens/resolves an
-  issue row in `ei_issues` when a job degrades (3 consecutive failures, a
+  issue row in `issues` when a job degrades (3 consecutive failures, a
   success rate under 60%, or 14+ days without an update). Detection only: a
   directive is posted to the job's thread, and any repair is applied by you
   after the agent drafts options — never automatically. Jobs that fail 3
