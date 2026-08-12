@@ -52,3 +52,6 @@ Never commit values; the repo contains names only.
 It shells to `doppler`, `git`, `bun`, `systemctl`, and (for the unit steps)
 `sudo`. Secret values are never printed; `ei status`/`ei provider` read
 `WORKFLOW_POSTGRES_URL` from doppler to query the agent tables directly.
+
+- `EI_INSTALL_DIR` — override `install.sh`'s prefix (default `/usr/local/bin` via sudo, else `~/.local/bin`).
+- `EI_VERSION` — pin a release tag in `install.sh` (default: latest).

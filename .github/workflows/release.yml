@@ -21,9 +21,14 @@ jobs:
       - name: Compile
         working-directory: packages/agent
         run: bun build --compile --target ${{ matrix.target }} --outfile ei-${{ matrix.target }} cli/main.ts
+      - name: Checksums
+        working-directory: packages/agent
+        run: sha256sum ei-${{ matrix.target }} > ei-${{ matrix.target }}.sha256
       - name: Smoke test
         working-directory: packages/agent
         run: ./ei-${{ matrix.target }} version && ./ei-${{ matrix.target }} doctor --json --dry-run | head -c 2000
       - uses: softprops/action-gh-release@v2
         with:
-          files: packages/agent/ei-${{ matrix.target }}
+          files: |
+            packages/agent/ei-${{ matrix.target }}
+            packages/agent/ei-${{ matrix.target }}.sha256

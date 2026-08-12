@@ -132,7 +132,24 @@ counts by source, and marks the active one.
 
 ## 8. CLI
 
-`ei` is a compiled, self-updating command line for operating the agent:
+`ei` is a compiled, self-updating command line for operating the agent.
+Install on any Linux box with one command:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Kuureki/Ei/main/install.sh | sh
+```
+
+Prefer downloading and inspecting first? Same script, two steps:
+
+```sh
+curl -fSL https://raw.githubusercontent.com/Kuureki/Ei/main/install.sh -o install.sh
+sh install.sh
+```
+
+`EI_VERSION=<tag>` pins a specific release (default: latest),
+`EI_INSTALL_DIR=<dir>` overrides the install prefix (default
+`/usr/local/bin` via `sudo`, else `~/.local/bin`). The binary is verified
+against a `.sha256` sidecar before install.
 
     ei setup     bootstrap a host (doppler, deps, build, register, systemd)
     ei upgrade   self-update the binary, then advance the checkout to the
