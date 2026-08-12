@@ -8,10 +8,16 @@ jobs:
   build:
     strategy:
       matrix:
-        target: [bun-linux-x64, bun-linux-arm64]
-    runs-on: ubuntu-latest
+        include:
+          - platform: linux-x64
+            bun-target: bun-linux-x64
+            runner: ubuntu-latest
+          - platform: linux-arm64
+            bun-target: bun-linux-arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
@@ -22,15 +28,15 @@ jobs:
         run: sed -i "s/export const EI_VERSION = .*/export const EI_VERSION = \"${{ github.ref_name }}\";/" packages/agent/cli/build/version.ts
       - name: Compile
         working-directory: packages/agent
-        run: bun build --compile --target ${{ matrix.target }} --outfile ei-${{ matrix.target }} cli/main.ts
+        run: bun build --compile --target ${{ matrix.bun-target }} --outfile ei-${{ matrix.platform }} cli/main.ts
       - name: Checksums
         working-directory: packages/agent
-        run: sha256sum ei-${{ matrix.target }} > ei-${{ matrix.target }}.sha256
+        run: sha256sum ei-${{ matrix.platform }} > ei-${{ matrix.platform }}.sha256
       - name: Smoke test
         working-directory: packages/agent
-        run: ./ei-${{ matrix.target }} version && ./ei-${{ matrix.target }} doctor --json --dry-run | head -c 2000
+        run: ./ei-${{ matrix.platform }} version && ./ei-${{ matrix.platform }} doctor --json --dry-run | head -c 2000
       - uses: softprops/action-gh-release@v2
         with:
           files: |
-            packages/agent/ei-${{ matrix.target }}
-            packages/agent/ei-${{ matrix.target }}.sha256
+            packages/agent/ei-${{ matrix.platform }}
+            packages/agent/ei-${{ matrix.platform }}.sha256
