@@ -1,6 +1,7 @@
 // cli/main.ts
 import { parseArgs, ArgsError, type ParsedArgs } from "./args";
 import { currentVersion } from "./version";
+import { readConfig } from "./config";
 import { errorCard } from "./ui/card";
 
 const HELP = `ei — the Ei agent command line
@@ -38,11 +39,23 @@ async function invoke(parsed: ParsedArgs): Promise<number> {
     case "version":
       process.stdout.write(currentVersion() + "\n");
       return 0;
+    case "status": {
+      const cfg = await readConfig(parsed.flags);
+      const { status } = await import("./commands/status");
+      return status(cfg, parsed.flags);
+    }
+    case "logs": {
+      const cfg = await readConfig(parsed.flags);
+      const { logs } = await import("./commands/logs");
+      return logs(cfg, parsed.flags);
+    }
+    case "doctor": {
+      const cfg = await readConfig(parsed.flags);
+      const { doctor } = await import("./commands/doctor");
+      return doctor(cfg, parsed.flags);
+    }
     case "setup":
     case "upgrade":
-    case "status":
-    case "logs":
-    case "doctor":
     case "evals":
     case "provider":
       // Implemented in later tasks; fail loudly until then.
