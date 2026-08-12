@@ -54,10 +54,14 @@ async function invoke(parsed: ParsedArgs): Promise<number> {
       const { doctor } = await import("./commands/doctor");
       return doctor(cfg, parsed.flags);
     }
+    case "provider": {
+      const cfg = await readConfig(parsed.flags);
+      const { provider } = await import("./commands/provider");
+      return provider(cfg, parsed.flags, parsed.positionals);
+    }
     case "setup":
     case "upgrade":
     case "evals":
-    case "provider":
       // Implemented in later tasks; fail loudly until then.
       throw new Error(`command "${parsed.command}" not implemented yet`);
     default:

@@ -159,7 +159,7 @@ async function removeProvider(deps: CommandDeps, options: Record<string, string 
 
 const EXAMPLE_PROMPT = "Reply with exactly: ok";
 
-async function testProvider(deps: CommandDeps, options: Record<string, string | boolean>): Promise<{ reply: string }> {
+export async function testProvider(deps: CommandDeps, options: Record<string, string | boolean>): Promise<{ reply: string }> {
   const name = String(options.name ?? "");
   const p = await getProvider(deps.ex, name);
   if (!p) return { reply: `No provider named "${name}".` };
