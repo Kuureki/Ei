@@ -59,7 +59,11 @@ async function invoke(parsed: ParsedArgs): Promise<number> {
       const { provider } = await import("./commands/provider");
       return provider(cfg, parsed.flags, parsed.positionals);
     }
-    case "setup":
+    case "setup": {
+      const cfg = await readConfig(parsed.flags);
+      const { setup } = await import("./commands/setup");
+      return setup(cfg, parsed.flags);
+    }
     case "upgrade":
     case "evals":
       // Implemented in later tasks; fail loudly until then.
