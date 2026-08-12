@@ -4,6 +4,7 @@ import path from "node:path";
 import type { EiConfig } from "../config";
 import { run, requireBin, type RunResult } from "../run";
 import { openDb } from "../env";
+import { resolveSentruxBin } from "../../lib/sentrux";
 import { card, errorCard } from "../ui/card";
 import { theme } from "../ui/theme";
 
@@ -13,9 +14,26 @@ export interface Check {
   detail: string;
 }
 
+/** Doctor check for the sentrux sensor binary (installed by `ei setup`). */
+export async function checkSentrux(opts: {
+  bin: string | null;
+  run?: typeof run;
+}): Promise<Check> {
+  const runner = opts.run ?? run;
+  if (!opts.bin) {
+    return { name: "sentrux", ok: false, detail: "not installed (ei setup installs it)" };
+  }
+  // SENTRUX_SKIP_GRAMMAR_DOWNLOAD keeps first-run from pulling a ~30MB tarball.
+  const version: RunResult = await runner([opts.bin, "--version"], {
+    env: { SENTRUX_SKIP_GRAMMAR_DOWNLOAD: "1" },
+  });
+  const detail = version.ok ? version.stdout.trim().split("\n")[0] : "sentrux --version failed";
+  return { name: "sentrux", ok: version.ok && detail.length > 0, detail };
+}
+
 export async function checkAll(
   cfg: EiConfig,
-  opts: { run?: typeof run; requireBin?: typeof requireBin } = {},
+  opts: { run?: typeof run; requireBin?: typeof requireBin; sentruxBin?: string | null } = {},
 ): Promise<Check[]> {
   const bin = opts.requireBin ?? requireBin;
   const runner = opts.run ?? run;
@@ -41,6 +59,7 @@ export async function checkAll(
     ok: db !== null,
     detail: db ? "reachable via doppler" : "no WORKFLOW_POSTGRES_URL in doppler",
   });
+  checks.push(await checkSentrux({ bin: opts.sentruxBin === undefined ? resolveSentruxBin() : opts.sentruxBin, run: runner }));
   return checks;
 }
 

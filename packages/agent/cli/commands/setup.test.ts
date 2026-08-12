@@ -12,6 +12,7 @@ test("planSetup renders a deterministic ordered plan", () => {
     "bun install",
     "typecheck",
     "build:agent",
+    "install sentrux",
     "register-commands",
     "write config",
     "systemd unit",
