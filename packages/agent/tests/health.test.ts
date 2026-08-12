@@ -25,7 +25,7 @@ async function seedSchedule(
   const id = opts.id ?? "s1";
   const updated = new Date(Date.now() - (opts.updatedAtDaysAgo ?? 0) * 86_400_000).toISOString();
   await ex.query(
-    `insert into ei_schedules
+    `insert into schedules
       (id, name, prompt, cadence, next_run_at, owner_discord_id, guild_id, dm_channel_id, enabled, updated_at)
      values ($1, $2, 'prompt text', 'every_minutes', now(), 'u1', 'g1', 'c1', $3, $4::timestamptz)`,
     [id, `job-${id}`, opts.enabled ?? true, updated],
@@ -36,7 +36,7 @@ async function seedRuns(ex: SqlExecutor, scheduleId: string, statuses: string[])
   for (let i = 0; i < statuses.length; i++) {
     const started = new Date(Date.now() - (statuses.length - i) * 60_000).toISOString();
     await ex.query(
-      `insert into ei_schedule_runs (id, schedule_id, status, error, started_at)
+      `insert into schedule_runs (id, schedule_id, status, error, started_at)
        values ($1, $2, $3, $4, $5::timestamptz)`,
       [`r-${scheduleId}-${crypto.randomUUID()}`, scheduleId, statuses[i], statuses[i] === "failed" ? "boom 100%" : null, started],
     );
@@ -117,7 +117,7 @@ describe("reconcileIssues", () => {
       now: new Date(),
     });
     expect(recovered.resolved).toHaveLength(1);
-    const rows = await ex.query(`select status, resolved_by from ei_issues`);
+    const rows = await ex.query(`select status, resolved_by from issues`);
     expect(String(rows.rows[0].status)).toBe("resolved");
     expect(String(rows.rows[0].resolved_by)).toBe("auto");
   });

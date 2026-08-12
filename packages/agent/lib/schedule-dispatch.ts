@@ -22,7 +22,7 @@ export async function runDispatchCycle(ex: SqlExecutor, opts: DispatchOptions): 
         // Auto-pause after N consecutive failures (spec §6): inspect the
         // newest runs for this schedule; a success in the streak resets it.
         const rows = await ex.query(
-          `select id, status from ei_schedule_runs
+          `select id, status from schedule_runs
            where schedule_id = $1
            order by started_at desc
            limit $2`,
@@ -32,7 +32,7 @@ export async function runDispatchCycle(ex: SqlExecutor, opts: DispatchOptions): 
           rows.rows.length >= PAUSE_AFTER_CONSECUTIVE_FAILURES &&
           rows.rows.every((r) => String(r.status) === "failed");
         if (allFailed) {
-          await ex.query(`update ei_schedules set enabled = false where id = $1`, [job.id]);
+          await ex.query(`update schedules set enabled = false where id = $1`, [job.id]);
         }
       }
     }),

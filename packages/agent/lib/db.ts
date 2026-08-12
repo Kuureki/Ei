@@ -1,4 +1,5 @@
-// PostgreSQL access for ei_* tables. Gracefully absent when no connection string is set.
+// PostgreSQL access for the agent's tables. Required at boot: getExecutor
+// throws when no connection string is set, and migrate() runs at startup.
 import pg from "pg";
 
 export interface QueryResultLike {
@@ -48,7 +49,7 @@ export function getExecutor(): SqlExecutor | null {
 }
 
 export const MIGRATE_SQL = `
-create table if not exists ei_providers (
+create table if not exists providers (
   id text primary key,
   name text unique not null,
   base_url text not null,
@@ -61,8 +62,8 @@ create table if not exists ei_providers (
   last_test_ok boolean,
   last_test_error text
 );
-create table if not exists ei_models_cache (
-  provider_id text not null references ei_providers(id) on delete cascade,
+create table if not exists models_cache (
+  provider_id text not null references providers(id) on delete cascade,
   model_id text not null,
   label text,
   context_window int,
@@ -76,12 +77,12 @@ create table if not exists ei_models_cache (
   fetched_at timestamptz not null default now(),
   primary key (provider_id, model_id)
 );
-create table if not exists ei_config (
+create table if not exists config (
   key text primary key,
   value jsonb not null,
   version bigint not null default 0
 );
-create table if not exists ei_schedules (
+create table if not exists schedules (
   id text primary key,
   name text not null,
   prompt text not null,
@@ -106,9 +107,9 @@ create table if not exists ei_schedules (
   tags jsonb not null default '[]'::jsonb,
   created_by text
 );
-create table if not exists ei_schedule_runs (
+create table if not exists schedule_runs (
   id text primary key,
-  schedule_id text not null references ei_schedules(id) on delete cascade,
+  schedule_id text not null references schedules(id) on delete cascade,
   started_at timestamptz not null default now(),
   finished_at timestamptz,
   status text not null,
@@ -116,9 +117,9 @@ create table if not exists ei_schedule_runs (
   error text,
   session_id text
 );
-create table if not exists ei_issues (
+create table if not exists issues (
   id          text primary key,
-  schedule_id text not null references ei_schedules(id) on delete cascade,
+  schedule_id text not null references schedules(id) on delete cascade,
   kind        text not null,
   severity    text not null,
   status      text not null default 'open',

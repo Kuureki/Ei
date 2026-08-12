@@ -68,7 +68,7 @@ export async function selectLineageTarget(
   const assessments = await assessSchedules(ex, { now });
   if (!assessments.length) return null;
 
-  const r = await ex.query(`select id, updated_at, tags from ei_schedules where enabled`);
+  const r = await ex.query(`select id, updated_at, tags from schedules where enabled`);
   const updatedAt = new Map<string, number>();
   const tagsOf = new Map<string, unknown>();
   for (const row of r.rows) {

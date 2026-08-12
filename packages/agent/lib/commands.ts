@@ -165,7 +165,7 @@ async function testProvider(deps: CommandDeps, options: Record<string, string | 
   if (!p) return { reply: `No provider named "${name}".` };
   const apiKey = deps.env[p.key_env];
   if (!apiKey) return { reply: `Secret ${p.key_env} is not set in this environment. Set it with: doppler secrets set ${p.key_env}=...` };
-  const cached = await deps.ex.query(`select model_id from ei_models_cache where provider_id = $1 order by model_id limit 1`, [p.id]);
+  const cached = await deps.ex.query(`select model_id from models_cache where provider_id = $1 order by model_id limit 1`, [p.id]);
   const active = await getActiveModel(deps.ex);
   const modelId =
     active && active.provider_id === p.id
@@ -175,7 +175,7 @@ async function testProvider(deps: CommandDeps, options: Record<string, string | 
         : null;
   if (!modelId) {
     await deps.ex.query(
-      `update ei_providers set last_tested_at = now(), last_test_ok = false, last_test_error = $1, updated_at = now() where id = $2`,
+      `update providers set last_tested_at = now(), last_test_ok = false, last_test_error = $1, updated_at = now() where id = $2`,
       ["no cached models", p.id],
     );
     return { reply: `No cached models for "${p.name}". Run /provider refresh first.` };
@@ -186,11 +186,11 @@ async function testProvider(deps: CommandDeps, options: Record<string, string | 
   try {
     await generateText({ model, prompt: EXAMPLE_PROMPT, maxOutputTokens: 4 });
     const ms = Date.now() - started;
-    await deps.ex.query(`update ei_providers set last_tested_at = now(), last_test_ok = true, last_test_error = null, updated_at = now() where id = $1`, [p.id]);
+    await deps.ex.query(`update providers set last_tested_at = now(), last_test_ok = true, last_test_error = null, updated_at = now() where id = $1`, [p.id]);
     return { reply: `OK for "${p.name}" via ${modelId} (${ms} ms).` };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await deps.ex.query(`update ei_providers set last_tested_at = now(), last_test_ok = false, last_test_error = $1, updated_at = now() where id = $2`, [msg, p.id]);
+    await deps.ex.query(`update providers set last_tested_at = now(), last_test_ok = false, last_test_error = $1, updated_at = now() where id = $2`, [msg, p.id]);
     return { reply: `"${p.name}" test failed: ${msg}` };
   }
 }

@@ -87,7 +87,7 @@ let memoryCache: CatalogSnapshot | null = null;
 async function loadFromDb(ex: SqlExecutor | undefined): Promise<CatalogSnapshot | null> {
   if (!ex) return null;
   try {
-    const r = await ex.query(`select value from ei_config where key = 'catalog'`);
+    const r = await ex.query(`select value from config where key = 'catalog'`);
     if (!r.rows.length) return null;
     const parsed = jsonValue(r.rows[0].value) as Partial<CatalogSnapshot> | null;
     if (!parsed || typeof parsed.data !== "object" || parsed.data === null || typeof parsed.fetched_at !== "number") return null;
@@ -121,8 +121,8 @@ export async function getCatalog(
   if (opts.ex) {
     try {
       await opts.ex.query(
-        `insert into ei_config (key, value, version) values ('catalog', $1::jsonb, 1)
-         on conflict (key) do update set value = excluded.value, version = ei_config.version + 1`,
+        `insert into config (key, value, version) values ('catalog', $1::jsonb, 1)
+         on conflict (key) do update set value = excluded.value, version = config.version + 1`,
         [JSON.stringify({ data, fetched_at: now })],
       );
     } catch {

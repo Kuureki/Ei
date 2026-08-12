@@ -53,12 +53,12 @@ function rowOf(r: Record<string, unknown>): ProviderRow {
 }
 
 export async function listProviders(ex: SqlExecutor): Promise<ProviderRow[]> {
-  const r = await ex.query(`select * from ei_providers order by name`);
+  const r = await ex.query(`select * from providers order by name`);
   return r.rows.map(rowOf);
 }
 
 export async function getProvider(ex: SqlExecutor, idOrName: string): Promise<ProviderRow | null> {
-  const r = await ex.query(`select * from ei_providers where id = $1 or name = $1 limit 1`, [idOrName]);
+  const r = await ex.query(`select * from providers where id = $1 or name = $1 limit 1`, [idOrName]);
   return r.rows.length ? rowOf(r.rows[0]) : null;
 }
 
@@ -67,7 +67,7 @@ export async function upsertProvider(ex: SqlExecutor, input: ProviderInput): Pro
   const headers = input.headers_json ?? null;
   const enabled = input.enabled ?? true;
   await ex.query(
-    `insert into ei_providers (id, name, base_url, key_env, headers_json, enabled)
+    `insert into providers (id, name, base_url, key_env, headers_json, enabled)
      values ($1, $2, $3, $4, $5::jsonb, $6)
      on conflict (name) do update set
        base_url = excluded.base_url,
@@ -85,12 +85,12 @@ export async function upsertProvider(ex: SqlExecutor, input: ProviderInput): Pro
 export async function deleteProvider(ex: SqlExecutor, idOrName: string): Promise<ProviderRow | null> {
   const existing = await getProvider(ex, idOrName);
   if (!existing) return null;
-  await ex.query(`delete from ei_providers where id = $1`, [existing.id]);
+  await ex.query(`delete from providers where id = $1`, [existing.id]);
   return existing;
 }
 
 export async function getActiveModel(ex: SqlExecutor): Promise<ActiveModelConfig | null> {
-  const r = await ex.query(`select value from ei_config where key = 'active_model'`);
+  const r = await ex.query(`select value from config where key = 'active_model'`);
   if (!r.rows.length) return null;
   const v = jsonValue(r.rows[0].value) as Partial<ActiveModelConfig> | null;
   if (!v || typeof v.provider_id !== "string" || typeof v.model_id !== "string") return null;
@@ -99,8 +99,8 @@ export async function getActiveModel(ex: SqlExecutor): Promise<ActiveModelConfig
 
 export async function setActiveModel(ex: SqlExecutor, active: ActiveModelConfig | null): Promise<void> {
   await ex.query(
-    `insert into ei_config (key, value, version) values ('active_model', $1::jsonb, 1)
-     on conflict (key) do update set value = excluded.value, version = ei_config.version + 1`,
+    `insert into config (key, value, version) values ('active_model', $1::jsonb, 1)
+     on conflict (key) do update set value = excluded.value, version = config.version + 1`,
     [JSON.stringify(active)],
   );
 }
@@ -121,7 +121,7 @@ export interface AutocompleteModel {
 export async function listModelsForAutocomplete(ex: SqlExecutor, query: string): Promise<AutocompleteModel[]> {
   const r = await ex.query(
     `select p.id as provider_id, m.model_id, m.label, m.context_window, m.supports_tool_calls
-     from ei_models_cache m join ei_providers p on p.id = m.provider_id
+     from models_cache m join providers p on p.id = m.provider_id
      where p.enabled and m.model_id ilike $1
      order by m.model_id limit 25`,
     [`%${query}%`],
@@ -141,7 +141,7 @@ export interface CacheCounts {
 }
 
 export async function cacheCounts(ex: SqlExecutor, providerId: string): Promise<CacheCounts> {
-  const r = await ex.query(`select source, count(*)::int as n from ei_models_cache where provider_id = $1 group by source`, [providerId]);
+  const r = await ex.query(`select source, count(*)::int as n from models_cache where provider_id = $1 group by source`, [providerId]);
   const out: CacheCounts = { endpoint: 0, catalog: 0 };
   for (const row of r.rows) {
     if (row.source === "endpoint") out.endpoint = Number(row.n);
@@ -151,10 +151,10 @@ export async function cacheCounts(ex: SqlExecutor, providerId: string): Promise<
 }
 
 export async function replaceModels(ex: SqlExecutor, providerId: string, rows: DiscoverModelRow[]): Promise<void> {
-  await ex.query(`delete from ei_models_cache where provider_id = $1`, [providerId]);
+  await ex.query(`delete from models_cache where provider_id = $1`, [providerId]);
   for (const row of rows) {
     await ex.query(
-      `insert into ei_models_cache
+      `insert into models_cache
         (provider_id, model_id, label, context_window, output_window, supports_tool_calls, supports_reasoning, supports_structured_output, price_in, price_out, source)
        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [providerId, row.model_id, row.label, row.context_window, row.output_window, row.supports_tool_calls, row.supports_reasoning, row.supports_structured_output, row.price_in, row.price_out, row.source],

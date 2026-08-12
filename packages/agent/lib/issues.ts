@@ -1,4 +1,4 @@
-// ei_issues adapter: durable rows for the self-healing loop.
+// issues adapter: durable rows for the self-healing loop.
 // Detection-only by design: openIssue/coalesce + resolve are the only writes.
 import { randomUUID } from "node:crypto";
 import { jsonValue, type SqlExecutor } from "./db";
@@ -54,13 +54,13 @@ export async function findOpenIssue(
 ): Promise<IssueRow | null> {
   if (rootCause === undefined) {
     const r = await ex.query(
-      `select * from ei_issues where schedule_id = $1 and kind = $2 and status = 'open' limit 1`,
+      `select * from issues where schedule_id = $1 and kind = $2 and status = 'open' limit 1`,
       [scheduleId, kind],
     );
     return r.rows.length ? rowOf(r.rows[0]) : null;
   }
   const r = await ex.query(
-    `select * from ei_issues where schedule_id = $1 and kind = $2 and root_cause = $3 and status = 'open' limit 1`,
+    `select * from issues where schedule_id = $1 and kind = $2 and root_cause = $3 and status = 'open' limit 1`,
     [scheduleId, kind, rootCause],
   );
   return r.rows.length ? rowOf(r.rows[0]) : null;
@@ -82,7 +82,7 @@ export async function openIssue(
       return { issue: existing, changed: false };
     }
     const r = await ex.query(
-      `update ei_issues set severity = $1, detail = $2::jsonb, updated_at = now()
+      `update issues set severity = $1, detail = $2::jsonb, updated_at = now()
        where id = $3 returning *`,
       [input.severity, JSON.stringify(detail), existing.id],
     );
@@ -91,7 +91,7 @@ export async function openIssue(
   const id = randomUUID();
   const detail = input.detail ?? {};
   await ex.query(
-    `insert into ei_issues (id, schedule_id, kind, severity, root_cause, detail)
+    `insert into issues (id, schedule_id, kind, severity, root_cause, detail)
      values ($1, $2, $3, $4, $5, $6::jsonb)`,
     [id, input.scheduleId, input.kind, input.severity, input.rootCause, JSON.stringify(detail)],
   );
@@ -102,14 +102,14 @@ export async function openIssue(
 
 export async function resolveIssue(ex: SqlExecutor, issueId: string, opts: { by: string }): Promise<void> {
   await ex.query(
-    `update ei_issues set status = 'resolved', resolved_at = now(), resolved_by = $1 where id = $2`,
+    `update issues set status = 'resolved', resolved_at = now(), resolved_by = $1 where id = $2`,
     [opts.by, issueId],
   );
 }
 
 export async function openIssuesForSchedule(ex: SqlExecutor, scheduleId: string): Promise<IssueRow[]> {
   const r = await ex.query(
-    `select * from ei_issues where schedule_id = $1 and status = 'open' order by updated_at desc`,
+    `select * from issues where schedule_id = $1 and status = 'open' order by updated_at desc`,
     [scheduleId],
   );
   return r.rows.map(rowOf);
@@ -119,7 +119,7 @@ export async function listIssues(ex: SqlExecutor, opts: { status?: "open" | "res
   const where = opts.status ? `where status = $1` : "";
   const params = opts.status ? [opts.status] : [];
   const r = await ex.query(
-    `select * from ei_issues ${where} order by updated_at desc`,
+    `select * from issues ${where} order by updated_at desc`,
     params as never[],
   );
   return r.rows.map(rowOf);

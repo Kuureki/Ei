@@ -13,7 +13,7 @@ async function memExecutor(): Promise<SqlExecutor> {
   return ex;
 }
 
-describe("ei_config gates", () => {
+describe("config gates", () => {
   test("readGate returns null when absent, then the written object", async () => {
     const ex = await memExecutor();
     expect(await readGate(ex, "health:last_report")).toBeNull();
@@ -26,7 +26,7 @@ describe("ei_config gates", () => {
     await writeGate(ex, "lineage:pending", { scheduleId: "s1", at: "a" });
     await writeGate(ex, "lineage:pending", { scheduleId: "s2", at: "b" });
     expect(await readGate(ex, "lineage:pending")).toEqual({ scheduleId: "s2", at: "b" });
-    const r = await ex.query(`select version from ei_config where key = 'lineage:pending'`);
+    const r = await ex.query(`select version from config where key = 'lineage:pending'`);
     expect(Number(r.rows[0].version)).toBe(2);
   });
 });

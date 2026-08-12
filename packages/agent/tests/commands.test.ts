@@ -71,7 +71,7 @@ describe("handleCommand", () => {
     await seed(ex);
     const { reply } = await handleCommand({ ex, env: ENV }, "use", { model: "llama-3.3-70b-versatile" });
     expect(reply).toContain("llama-3.3-70b-versatile");
-    const cfg = await ex.query(`select value from ei_config where key = 'active_model'`);
+    const cfg = await ex.query(`select value from config where key = 'active_model'`);
     expect(jsonValue(cfg.rows[0].value)).toEqual({ provider_id: "groq", model_id: "llama-3.3-70b-versatile" });
   });
   test("use rejects an unknown model id", async () => {
@@ -86,7 +86,7 @@ describe("handleCommand", () => {
     await setActiveModel(ex, { provider_id: "groq", model_id: "llama-3.3-70b-versatile" });
     const { reply } = await handleCommand({ ex, env: ENV }, "remove", { name: "Groq" });
     expect(reply.toLowerCase()).toContain("removed");
-    const cfg = await ex.query(`select value from ei_config where key = 'active_model'`);
+    const cfg = await ex.query(`select value from config where key = 'active_model'`);
     expect(jsonValue(cfg.rows[0].value)).toBeNull();
   });
   test("edit rejects a private base_url", async () => {

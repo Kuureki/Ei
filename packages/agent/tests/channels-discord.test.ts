@@ -26,11 +26,11 @@ describe("channels/discord scheduleRunId handle", () => {
 
     // A fake dispatch: 'r1' must exist as a run row for completeRun to bump the schedule.
     await ex.query(
-      `insert into ei_schedules (id, name, prompt, cadence, next_run_at, owner_discord_id, guild_id, dm_channel_id)
+      `insert into schedules (id, name, prompt, cadence, next_run_at, owner_discord_id, guild_id, dm_channel_id)
        values ($1, $2, $3, 'daily_at', now(), 'u1', 'g1', 'c1')`,
       [scheduleId, "remind", "p"],
     );
-    await ex.query(`insert into ei_schedule_runs (id, schedule_id, status) values ('r1', $1, 'running')`, [scheduleId]);
+    await ex.query(`insert into schedule_runs (id, schedule_id, status) values ('r1', $1, 'running')`, [scheduleId]);
     await completeRun(ex, "r1", { status: "succeeded", output: "done", sessionId: "s1" });
 
     const runs = await listRuns(ex, scheduleId, 10);

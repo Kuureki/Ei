@@ -20,7 +20,7 @@ const OWNER = { principalId: "u1", guildId: "g1", channelId: "c1" };
 async function seedRuns(ex: SqlExecutor, scheduleId: string, statuses: string[]): Promise<void> {
   for (let i = 0; i < statuses.length; i++) {
     await ex.query(
-      `insert into ei_schedule_runs (id, schedule_id, status, started_at)
+      `insert into schedule_runs (id, schedule_id, status, started_at)
        values ($1, $2, $3, now() - ($4 || ' minutes')::interval)`,
       [`rl-${scheduleId}-${crypto.randomUUID()}`, scheduleId, statuses[i], statuses.length - i],
     );
@@ -62,7 +62,7 @@ describe("selectLineageTarget", () => {
     const critical = await createSchedule(ex, { name: "c", prompt: "p", cadence: { kind: "every_minutes", everyMinutes: 30 }, owner: OWNER });
     await seedRuns(ex, healthy.id, ["succeeded", "succeeded"]);
     await seedRuns(ex, stale.id, ["succeeded", "succeeded"]);
-    await ex.query(`update ei_schedules set updated_at = now() - interval '20 days' where id = $1`, [stale.id]);
+    await ex.query(`update schedules set updated_at = now() - interval '20 days' where id = $1`, [stale.id]);
     await seedRuns(ex, degraded.id, ["succeeded", "failed", "failed", "succeeded", "failed", "failed"]);
     await seedRuns(ex, critical.id, ["failed", "failed", "failed"]);
 

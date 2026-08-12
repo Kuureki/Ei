@@ -1,4 +1,4 @@
-// ei_schedules + ei_schedule_runs adapter over the repo's SqlExecutor.
+// schedules + schedule_runs adapter over the repo's SqlExecutor.
 // Atomically leases due rows so overlapping dispatcher ticks never claim twice.
 import { randomUUID } from "node:crypto";
 import { jsonValue, type SqlExecutor } from "./db";
@@ -117,7 +117,7 @@ export async function createSchedule(ex: SqlExecutor, input: CreateScheduleInput
   const from = input.firstRunAt ? new Date(input.firstRunAt) : new Date();
   const tags = input.tags ?? [];
   await ex.query(
-    `insert into ei_schedules
+    `insert into schedules
       (id, name, prompt, cadence, every_minutes, cron, timezone, next_run_at, owner_discord_id, guild_id, dm_channel_id, dm_thread_id, tags, created_by)
      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14)`,
     [
@@ -143,12 +143,12 @@ export async function createSchedule(ex: SqlExecutor, input: CreateScheduleInput
 }
 
 export async function listSchedules(ex: SqlExecutor): Promise<ScheduleRow[]> {
-  const r = await ex.query(`select * from ei_schedules order by next_run_at`);
+  const r = await ex.query(`select * from schedules order by next_run_at`);
   return r.rows.map(rowOf);
 }
 
 export async function getSchedule(ex: SqlExecutor, idOrName: string): Promise<ScheduleRow | null> {
-  const r = await ex.query(`select * from ei_schedules where id = $1 or name = $1 limit 1`, [idOrName]);
+  const r = await ex.query(`select * from schedules where id = $1 or name = $1 limit 1`, [idOrName]);
   return r.rows.length ? rowOf(r.rows[0]) : null;
 }
 
@@ -180,27 +180,27 @@ export async function updateSchedule(
   if (patch.tags !== undefined) push("tags", JSON.stringify(patch.tags));
   values.push(next.toISOString());
   fields.push(`next_run_at = $${values.length}`, `updated_at = now()`);
-  await ex.query(`update ei_schedules set ${fields.join(", ")} where id = $${values.length + 1}`, [...values, existing.id]);
+  await ex.query(`update schedules set ${fields.join(", ")} where id = $${values.length + 1}`, [...values, existing.id]);
   return getSchedule(ex, existing.id);
 }
 
 export async function deleteSchedule(ex: SqlExecutor, idOrName: string): Promise<ScheduleRow | null> {
   const existing = await getSchedule(ex, idOrName);
   if (!existing) return null;
-  await ex.query(`delete from ei_schedules where id = $1`, [existing.id]);
+  await ex.query(`delete from schedules where id = $1`, [existing.id]);
   return existing;
 }
 
 export async function triggerSchedule(ex: SqlExecutor, idOrName: string): Promise<{ ok: boolean; name?: string }> {
   const r = await ex.query(
-    `update ei_schedules set next_run_at = now(), locked_until = null, locked_by = null
+    `update schedules set next_run_at = now(), locked_until = null, locked_by = null
      where id = $1 and enabled returning *`,
     [idOrName],
   );
   if (!r.rows.length) {
     // Try by name.
     const byName = await ex.query(
-      `update ei_schedules set next_run_at = now(), locked_until = null, locked_by = null
+      `update schedules set next_run_at = now(), locked_until = null, locked_by = null
        where name = $1 and enabled returning *`,
       [idOrName],
     );
@@ -219,10 +219,10 @@ export async function claimDue(
   const nowIso = opts.now.toISOString();
   const lockUntil = new Date(opts.now.getTime() + opts.leaseForMs).toISOString();
   const r = await ex.query(
-    `update ei_schedules
+    `update schedules
        set locked_until = $1, locked_by = $2, last_run_at = now()
      where id in (
-       select id from ei_schedules
+       select id from schedules
        where enabled and next_run_at <= $3 and (locked_until is null or locked_until < $3)
        order by next_run_at
        limit $4
@@ -235,7 +235,7 @@ export async function claimDue(
     const s = rowOf(row);
     const runId = randomUUID();
     await ex.query(
-      `insert into ei_schedule_runs (id, schedule_id, status) values ($1, $2, 'running')`,
+      `insert into schedule_runs (id, schedule_id, status) values ($1, $2, 'running')`,
       [runId, s.id],
     );
     claimed.push({
@@ -259,13 +259,13 @@ export async function completeRun(
 ): Promise<void> {
   // The run row (started_at) anchors recurrence: the next run fires one full
   // cadence after this run *started*, not after it finished.
-  const runRow = await ex.query(`select schedule_id, started_at from ei_schedule_runs where id = $1`, [runId]);
+  const runRow = await ex.query(`select schedule_id, started_at from schedule_runs where id = $1`, [runId]);
   if (!runRow.rows.length) return;
   const scheduleId = String(runRow.rows[0].schedule_id);
   const startedAt = new Date(String(runRow.rows[0].started_at));
 
   await ex.query(
-    `update ei_schedule_runs
+    `update schedule_runs
        set status = $2, finished_at = now(), output = $3, error = $4, session_id = $5
      where id = $1`,
     [runId, outcome.status, outcome.output ?? null, outcome.error ?? null, outcome.sessionId ?? null],
@@ -277,7 +277,7 @@ export async function completeRun(
   if (schedule) {
     const next = computeNextRun(startedAt, cadenceOf(schedule), schedule.timezone);
     await ex.query(
-      `update ei_schedules
+      `update schedules
          set last_run_status = $2, last_run_output = $3, run_count = run_count + 1,
              last_run_at = now(), locked_until = null, locked_by = null,
              next_run_at = case when enabled then $4 else next_run_at end
@@ -289,7 +289,7 @@ export async function completeRun(
 
 export async function listRuns(ex: SqlExecutor, scheduleId: string, limit = 3): Promise<RunRow[]> {
   const r = await ex.query(
-    `select * from ei_schedule_runs where schedule_id = $1 order by started_at desc limit $2`,
+    `select * from schedule_runs where schedule_id = $1 order by started_at desc limit $2`,
     [scheduleId, limit],
   );
   return r.rows.map((row) => ({
@@ -318,7 +318,7 @@ export async function appendLineageTag(
     lineage: { generation: nextLineageGeneration(existing.tags), variation, applied_at: new Date().toISOString() },
   });
   await ex.query(
-    `update ei_schedules set tags = $1::jsonb, updated_at = now() where id = $2`,
+    `update schedules set tags = $1::jsonb, updated_at = now() where id = $2`,
     [JSON.stringify(tags), existing.id],
   );
   return getSchedule(ex, existing.id);

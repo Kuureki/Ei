@@ -65,12 +65,12 @@ function classify(runs: Array<{ status: string }>): { status: HealthStatus; cons
 
 export async function assessSchedules(ex: SqlExecutor, opts: { now: Date }): Promise<ScheduleHealth[]> {
   const now = opts.now;
-  const r = await ex.query(`select * from ei_schedules where enabled`);
+  const r = await ex.query(`select * from schedules where enabled`);
   const out: ScheduleHealth[] = [];
   for (const raw of r.rows) {
     const scheduleId = String(raw.id);
     const runs = await ex.query(
-      `select status, error, started_at from ei_schedule_runs
+      `select status, error, started_at from schedule_runs
        where schedule_id = $1 order by started_at desc limit 10`,
       [scheduleId],
     );

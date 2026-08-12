@@ -21,7 +21,7 @@ async function memExecutor(): Promise<SqlExecutor> {
 
 async function seedSchedule(ex: SqlExecutor, id = "s1"): Promise<void> {
   await ex.query(
-    `insert into ei_schedules
+    `insert into schedules
       (id, name, prompt, cadence, next_run_at, owner_discord_id, guild_id, dm_channel_id)
      values ($1, $2, $3, 'every_minutes', now(), 'u1', 'g1', 'c1')`,
     [id, `job-${id}`, "p"],
@@ -116,8 +116,8 @@ describe("issues store", () => {
     const ex = await memExecutor();
     await seedSchedule(ex);
     await openIssue(ex, { scheduleId: "s1", kind: "degraded", severity: "degraded", rootCause: "a" });
-    await ex.query(`delete from ei_schedules where id = 's1'`);
-    const left = await ex.query(`select count(*)::int as n from ei_issues`);
+    await ex.query(`delete from schedules where id = 's1'`);
+    const left = await ex.query(`select count(*)::int as n from issues`);
     expect(left.rows[0].n).toBe(0);
   });
 });
