@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "eve build",
+    "cli": "bun run cli/main.ts",
     "dev": "eve dev",
     "start": "eve start",
     "typecheck": "tsc",
@@ -15,6 +16,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "4.0.17",
+    "@clack/prompts": "^0.10",
     "@composio/core": "^0.15.0",
     "@composio/experimental": "^0.2.2",
     "@ei/shared": "workspace:*",
@@ -31,6 +33,7 @@
     "mammoth": "^1.12.1",
     "pdf-parse": "^2.4.5",
     "pg": "^8.23.0",
+    "picocolors": "^1.1",
     "turndown": "^7.2.4",
     "zod": "4.4.3"
   },

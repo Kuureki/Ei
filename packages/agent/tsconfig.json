@@ -3,5 +3,5 @@
   "compilerOptions": {
     "types": ["node", "bun"]
   },
-  "include": ["agent/**/*.ts", "evals/**/*.ts", "lib/**/*.ts", "tests/**/*.ts"]
+  "include": ["agent/**/*.ts", "evals/**/*.ts", "lib/**/*.ts", "tests/**/*.ts", "cli/**/*.ts"]
 }
