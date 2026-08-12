@@ -202,25 +202,51 @@ Expected: output lines `ei: downloading ei-linux-x64 from file:///tmp/ei-fake-re
 
 - [ ] **Step 4: Smoke the checksum-mismatch failure**
 
-Run:
+First rebuild the fake release with the padded stub (the one from Step 3 was
+tampered in Step 4's first attempt — the sidecar must stay the ORIGINAL one
+from the clean binary, so regenerate both from the clean stub):
 
 ```bash
-printf '#!/bin/sh\necho "evil"\n' > /tmp/ei-fake-release/ei-linux-x64
+set -eu
+rm -rf /tmp/ei-fake-release /tmp/ei-prefix
+mkdir -p /tmp/ei-fake-release
+{ printf '#!/bin/sh\n#'; head -c 100050 /dev/zero | tr '\0' '#'; printf '\necho "v9.9.9-test"\n'; } > /tmp/ei-fake-release/ei-linux-x64
+chmod +x /tmp/ei-fake-release/ei-linux-x64
 cd /tmp/ei-fake-release && sha256sum ei-linux-x64 > ei-linux-x64.sha256
+cd /tmp && EI_BASE_URL="file:///tmp/ei-fake-release" EI_INSTALL_DIR="/tmp/ei-prefix" sh /root/dev/projects/Ei/install.sh   # clean install
+# tamper ONLY the binary — leave the sidecar untouched so it no longer matches
+{ printf '#!/bin/sh\n#'; head -c 100050 /dev/zero | tr '\0' '#'; printf '\necho "evil"\n'; } > /tmp/ei-fake-release/ei-linux-x64
 cd /tmp && EI_BASE_URL="file:///tmp/ei-fake-release" EI_INSTALL_DIR="/tmp/ei-prefix" sh /root/dev/projects/Ei/install.sh; echo "exit=$?"
+echo "--- previous binary intact:"; /tmp/ei-prefix/ei version
 ```
 
-Expected: `ei: checksum mismatch` on stderr, `exit=1`, and `/tmp/ei-prefix/ei` still prints `v9.9.9-test` (previous binary intact).
+Expected: `ei: checksum mismatch` on stderr, `exit=1`, and `/tmp/ei-prefix/ei`
+still prints `v9.9.9-test` (previous binary intact). NOTE: do NOT re-run
+`sha256sum` after tampering — regenerating the sidecar to match the tampered
+binary makes the mismatch branch untestable (the first draft of this step made
+that mistake; the padded stub also matters because the size guard fires first
+on tiny stubs).
 
-- [ ] **Step 5: Smoke unsupported platform + missing curl messages**
+- [ ] **Step 5: Smoke the missing-curl message**
 
-Run: `EI_BASE_URL="file:///tmp/ei-fake-release" sh /root/dev/projects/Ei/install.sh` on a non-Linux shell is not possible here; instead assert the platform branch logic is inert by confirming the happy-path run above already exercised `uname` Linux/x86_64. For the curl guard, simulate via `PATH`:
+Give the script a PATH that contains only `uname` (mapped via symlink — the
+script needs no other external tool before the curl guard; but it MUST have
+`uname` or it dies on the platform check first) so `command -v curl` fails
+while the guard itself can still be reached:
 
 ```bash
-mkdir -p /tmp/ei-nobin && PATH="/tmp/ei-nobin" sh /root/dev/projects/Ei/install.sh; echo "exit=$?"
+mkdir -p /tmp/ei-nocup
+ln -sf /usr/bin/uname /tmp/ei-nocup/uname
+ln -sf /bin/sh /tmp/ei-nocup/sh        # the interpreter itself must resolve too
+PATH="/tmp/ei-nocup" sh /root/dev/projects/Ei/install.sh; echo "exit=$?"
 ```
 
 Expected: `ei: curl not found — install curl (e.g. apt install curl) and retry`, `exit=1`.
+(On distros with `/bin`→`/usr/bin` merges this is required — a bare
+`PATH=/tmp/emptydir` breaks `uname` first; a non-executable `curl` shim is
+skipped by POSIX `command -v`, so it simulates nothing. Running the script
+without a real release configured exercises the `download failed` branch
+instead, which exits 1 with a clear message — that is fine too.)
 
 - [ ] **Step 6: Commit**
 
