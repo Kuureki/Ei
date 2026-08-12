@@ -81,14 +81,14 @@ via `zod`), mapping 1:1 to sentrux's MCP registry:
 | `sentrux_session_end` | `session_end` | `{}` |
 | `sentrux_health` | `health` | `{}` |
 | `sentrux_check_rules` | `check_rules` | `{}` |
-| `sentrux_evolution` | `evolution` | `{}` |
-| `sentrux_dsm` | `dsm` | `{}` |
-| `sentrux_test_gaps` | `test_gaps` | `{}` |
+| `sentrux_git_stats` | `git_stats` | `{ days?: integer }` |
+| `sentrux_dsm` | `dsm` | `{ format?: "text" \| "stats" }` |
+| `sentrux_test_gaps` | `test_gaps` | `{ limit?: integer }` |
 
 Input schemas are hand-mirrored from sentrux's `handlers.rs` /
 `handlers_evo.rs` `input_schema` JSON (exact shapes copied at
-implementation time from the sentrux repo at a pinned ref; the five
-schema-less tools use `{}`).
+implementation time from the sentrux repo at a pinned ref; note the repo
+README's "evolution" tool is named `git_stats` in the MCP registry).
 
 Shared module machinery:
 

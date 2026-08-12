@@ -51,7 +51,7 @@ describe("ensureSentrux", () => {
       fetchImpl: (async () => {
         calls++;
         throw new Error("must not download");
-      }) as typeof fetch,
+      }) as unknown as typeof fetch,
     });
     expect(p).toBe(bin);
     expect(calls).toBe(0);
@@ -70,7 +70,7 @@ describe("ensureSentrux", () => {
       }) as unknown as typeof fetch,
     });
     expect(p).toBe(target);
-    expect(fetched).toContain("/releases/latest/download/sentrux-linux-aarch64");
+    expect(fetched ?? "").toContain("/releases/latest/download/sentrux-linux-aarch64");
     expect(await stat(target)).toBeDefined();
     const mode = (await stat(target)).mode & 0o111;
     expect(mode).not.toBe(0);
@@ -79,14 +79,14 @@ describe("ensureSentrux", () => {
   test("fails clearly on unsupported arch", async () => {
     const dir = await freshDir();
     await expect(
-      ensureSentrux({ binPath: path.join(dir, "s"), arch: "ia32", fetchImpl: (async () => new Response("")) as typeof fetch }),
+      ensureSentrux({ binPath: path.join(dir, "s"), arch: "ia32", fetchImpl: (async () => new Response("")) as unknown as typeof fetch }),
     ).rejects.toThrow(/unsupported arch/);
   });
 
   test("fails clearly when the download does not return ok", async () => {
     const dir = await freshDir();
     await expect(
-      ensureSentrux({ binPath: path.join(dir, "s"), arch: "x64", fetchImpl: (async () => new Response("nope", { status: 404 })) as typeof fetch }),
+      ensureSentrux({ binPath: path.join(dir, "s"), arch: "x64", fetchImpl: (async () => new Response("nope", { status: 404 })) as unknown as typeof fetch }),
     ).rejects.toThrow(/download failed/);
   });
 });
