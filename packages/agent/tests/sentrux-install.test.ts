@@ -29,10 +29,13 @@ describe("resolveSentruxBin", () => {
     await writeFile(bin, "#!/bin/sh\necho x\n", { mode: 0o755 });
     expect(resolveSentruxBin({ SENTRUX_PATH: bin })).toBe(bin);
   });
-  test("ignores SENTRUX_PATH when the file is missing", async () => {
+  test("ignores SENTRUX_PATH when the file is missing, falling back to the default bin", async () => {
     const dir = await freshDir();
     const bin = path.join(dir, "nope");
-    expect(resolveSentruxBin({ SENTRUX_PATH: bin })).toBeNull();
+    const resolved = resolveSentruxBin({ SENTRUX_PATH: bin });
+    expect(resolved).not.toBe(bin);
+    // falls back to the default location when present, otherwise null
+    expect(resolved === null || resolved === "/usr/local/bin/sentrux").toBe(true);
   });
   test("falls back to /usr/local/bin/sentrux", () => {
     const exists = resolveSentruxBin({});
