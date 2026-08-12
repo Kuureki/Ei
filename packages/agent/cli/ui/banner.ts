@@ -1,7 +1,7 @@
 // cli/ui/banner.ts
-import pc from "picocolors";
+import { theme } from "./theme";
 import { currentVersion } from "../version";
 
 export function banner(): void {
-  process.stdout.write(pc.bold("Ei") + pc.dim(` · ${currentVersion()}`) + "\n\n");
+  process.stdout.write(theme.strong("Ei") + theme.dim(` · ${currentVersion()}`) + "\n\n");
 }

@@ -1,0 +1,24 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`errorCard renders a red title and lines 1`] = `
+"\x1B[31m\x1B[1m✖ ei failed\x1B[22m\x1B[39m
+  boom
+  run ei doctor
+"
+`;
+
+exports[`table aligns columns 1`] = `
+"name      base url                      
+────────────────────────────────────────
+groq      https://api.groq.com/openai/v1
+moonshot  https://api.moonshot.ai/v1    
+"
+`;
+
+exports[`card renders a title and aligned rows 1`] = `
+"╭─ \x1B[1mEi · dev\x1B[22m ──────────────────────────────────╮
+│ Agent health  ● ok                         │
+│ Active model  groq/llama-3.3-70b-versatile │
+╰──────────────────────────────────────────────╯
+"
+`;
