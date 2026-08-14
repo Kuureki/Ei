@@ -6,7 +6,7 @@ import { errorCard } from "../ui/card";
 
 export async function logs(cfg: EiConfig, flags: Record<string, string | boolean>): Promise<number> {
   if (!requireBin("journalctl")) {
-    process.stderr.write(errorCard("logs", ["journalctl not found — systemd host required.", "Hint: run the agent with `doppler run -- bunx eve start` and read its output."]));
+    process.stderr.write(errorCard("logs", ["journalctl not found — systemd host required.", "Hint: run the agent with `doppler run --project ei --config prd -- bunx eve start` and read its output."]));
     return 1;
   }
   const lines = typeof flags.lines === "string" ? Number(flags.lines) : 100;

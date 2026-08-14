@@ -1,7 +1,7 @@
 // cli/args.ts
 export class ArgsError extends Error {}
 
-const VALUE_FLAGS = new Set(["checkout", "unit", "project", "lines"]);
+const VALUE_FLAGS = new Set(["checkout", "unit", "project", "config", "lines"]);
 const BOOL_FLAGS = new Set(["json", "dry-run", "debug", "follow", "help", "version"]);
 
 export interface ParsedArgs {

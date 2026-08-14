@@ -10,11 +10,11 @@ export async function evals(cfg: EiConfig, flags: Record<string, string | boolea
     return 1;
   }
   if (flags["dry-run"]) {
-    process.stdout.write("would run: doppler run --project " + cfg.dopplerProject + " -- bash scripts/eval-ci.sh\n");
+    process.stdout.write("would run: doppler run --project " + cfg.dopplerProject + " --config " + cfg.dopplerConfig + " -- bash scripts/eval-ci.sh\n");
     return 0;
   }
   const code = await runInteractive(
-    ["doppler", "run", "--project", cfg.dopplerProject, "--", "bash", "scripts/eval-ci.sh"],
+    ["doppler", "run", "--project", cfg.dopplerProject, "--config", cfg.dopplerConfig, "--", "bash", "scripts/eval-ci.sh"],
     { cwd: cfg.checkoutPath },
   );
   return code === 0 ? 0 : 1;

@@ -24,9 +24,23 @@ test("writeConfig then readConfig round-trips", async () => {
   const old = process.env.XDG_CONFIG_HOME;
   process.env.XDG_CONFIG_HOME = dir;
   try {
-    writeConfig({ checkoutPath: "/opt/ei", unitName: "ei", dopplerProject: "ei" });
+    writeConfig({ checkoutPath: "/opt/ei", unitName: "ei", dopplerProject: "ei", dopplerConfig: "prd" });
     const cfg = await readConfig({});
     expect(cfg.checkoutPath).toBe("/opt/ei");
+    expect(cfg.dopplerConfig).toBe("prd");
+  } finally {
+    if (old === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = old;
+  }
+});
+
+test("dopplerConfig defaults to prd", async () => {
+  const old = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = dir;
+  try {
+    const cfg = await readConfig({});
+    expect(cfg.dopplerProject).toBe("ei");
+    expect(cfg.dopplerConfig).toBe("prd");
   } finally {
     if (old === undefined) delete process.env.XDG_CONFIG_HOME;
     else process.env.XDG_CONFIG_HOME = old;
@@ -37,9 +51,10 @@ test("flags override file values", async () => {
   const old = process.env.XDG_CONFIG_HOME;
   process.env.XDG_CONFIG_HOME = dir;
   try {
-    const cfg = await readConfig({ checkout: "/elsewhere", unit: "my-ei" });
+    const cfg = await readConfig({ checkout: "/elsewhere", unit: "my-ei", config: "dev" });
     expect(cfg.checkoutPath).toBe("/elsewhere");
     expect(cfg.unitName).toBe("my-ei");
+    expect(cfg.dopplerConfig).toBe("dev");
   } finally {
     if (old === undefined) delete process.env.XDG_CONFIG_HOME;
     else process.env.XDG_CONFIG_HOME = old;

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // Register the provider slash commands. Run with Doppler env:
-//   doppler run -- bun scripts/register-commands.ts [--dry-run|--list]
+//   doppler run --project ei --config prd -- bun scripts/register-commands.ts [--dry-run|--list]
 import { buildCommandDefinitions } from "../packages/agent/lib/registry";
 
 const BASE = "https://discord.com/api/v10";

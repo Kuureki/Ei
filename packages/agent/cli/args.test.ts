@@ -12,6 +12,7 @@ describe("parseArgs", () => {
   test("supports --flag=value and --flag value", () => {
     expect(parseArgs(["logs", "--lines=25"]).flags.lines).toBe("25");
     expect(parseArgs(["upgrade", "--checkout", "/srv/ei"]).flags.checkout).toBe("/srv/ei");
+    expect(parseArgs(["setup", "--config", "dev"]).flags.config).toBe("dev");
   });
   test("first non-flag token is the command", () => {
     const p = parseArgs(["--dry-run", "setup"]);

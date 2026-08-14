@@ -14,7 +14,7 @@ async function memExecutor(): Promise<SqlExecutor> {
   return ex;
 }
 
-const cfg = { checkoutPath: "/opt/ei", unitName: "ei", dopplerProject: "ei" };
+const cfg = { checkoutPath: "/opt/ei", unitName: "ei", dopplerProject: "ei", dopplerConfig: "prd" };
 
 test("providerList reports providers, counts, and active model", async () => {
   const ex = await memExecutor();

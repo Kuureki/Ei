@@ -7,6 +7,7 @@ export interface EiConfig {
   checkoutPath: string;
   unitName: string;
   dopplerProject: string;
+  dopplerConfig: string;
 }
 
 export function configPath(): string {
@@ -28,6 +29,7 @@ export async function readConfig(flags: {
   checkout?: string;
   unit?: string;
   project?: string;
+  config?: string;
 }): Promise<EiConfig> {
   const file: Partial<EiConfig> = {};
   const p = configPath();
@@ -44,6 +46,7 @@ export async function readConfig(flags: {
     checkoutPath: checkout,
     unitName: flags.unit ?? file.unitName ?? "ei",
     dopplerProject: flags.project ?? file.dopplerProject ?? "ei",
+    dopplerConfig: flags.config ?? file.dopplerConfig ?? "prd",
   };
 }
 

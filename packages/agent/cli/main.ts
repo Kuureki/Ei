@@ -24,7 +24,7 @@ Options:
   --dry-run    Print the planned steps, mutate nothing
   --json       Machine-readable output
   --debug      Include stack traces on errors
-  --checkout <path>, --unit <name>, --project <name>
+  --checkout <path>, --unit <name>, --project <name>, --config <name>
   --lines <n>  (logs) lines to tail; default 100
   --follow     (logs) follow mode
 `;

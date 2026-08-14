@@ -2,13 +2,13 @@
 import { describe, expect, test } from "bun:test";
 import { planSetup } from "./setup";
 
-const cfg = { checkoutPath: "/opt/ei", unitName: "ei", dopplerProject: "ei" };
+const cfg = { checkoutPath: "/opt/ei", unitName: "ei", dopplerProject: "ei", dopplerConfig: "prd" };
 
 test("planSetup renders a deterministic ordered plan", () => {
   const plan = planSetup(cfg);
   expect(plan.map((s) => s.label)).toEqual([
     "Preflight",
-    "doppler setup",
+    "doppler project + config",
     "bun install",
     "typecheck",
     "build:agent",

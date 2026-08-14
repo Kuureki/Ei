@@ -14,7 +14,7 @@ async function memExecutor(): Promise<SqlExecutor> {
   return ex;
 }
 
-const cfg = { checkoutPath: "/opt/ei", unitName: "ei", dopplerProject: "ei" };
+const cfg = { checkoutPath: "/opt/ei", unitName: "ei", dopplerProject: "ei", dopplerConfig: "prd" };
 
 test("collectStatus degrades gracefully with no db and down health", async () => {
   const report = await collectStatus(cfg, {

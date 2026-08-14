@@ -11,7 +11,7 @@ import { theme } from "../ui/theme";
 
 export type SetupAction =
   | "preflight"
-  | "doppler-setup"
+  | "doppler-project"
   | "sentrux"
   | "install"
   | "typecheck"
@@ -33,7 +33,7 @@ export function planSetup(
   const hasSystemd = opts.hasSystemd ?? Boolean(requireBin("systemctl"));
   return [
     { label: "Preflight", action: "preflight" },
-    { label: "doppler setup", action: "doppler-setup" },
+    { label: "doppler project + config", action: "doppler-project" },
     { label: "bun install", action: "install" },
     { label: "typecheck", action: "typecheck" },
     { label: "build:agent", action: "build" },
@@ -58,7 +58,7 @@ Wants=network-online.target
 Type=simple
 User=${user}
 WorkingDirectory=${cfg.checkoutPath}/packages/agent
-ExecStart=/usr/local/bin/doppler run --project ${cfg.dopplerProject} -- bunx eve start
+ExecStart=/usr/local/bin/doppler run --project ${cfg.dopplerProject} --config ${cfg.dopplerConfig} -- bunx eve start
 Restart=on-failure
 RestartSec=5
 
@@ -86,7 +86,7 @@ export async function setup(cfg: EiConfig, flags: Record<string, string | boolea
   const plan = planSetup(cfg);
   if (flags["dry-run"]) {
     process.stdout.write(card("ei setup — dry run", plan.map((s) => ({ key: s.label, value: s.action, color: theme.dim }))));
-    process.stdout.write(theme.dim(`checkout: ${cfg.checkoutPath} · unit: ${cfg.unitName} · doppler project: ${cfg.dopplerProject}\n`));
+    process.stdout.write(theme.dim(`checkout: ${cfg.checkoutPath} · unit: ${cfg.unitName} · doppler: ${cfg.dopplerProject}/${cfg.dopplerConfig}\n`));
     return 0;
   }
   if (flags.json) {
@@ -104,14 +104,24 @@ export async function setup(cfg: EiConfig, flags: Record<string, string | boolea
       case "preflight":
         plugStep(step.label, true, `${cfg.checkoutPath}`);
         break;
-      case "doppler-setup": {
-        await runInteractive(["doppler", "setup", "--project", cfg.dopplerProject], { cwd: cfg.checkoutPath });
-        const ok = (await run(["doppler", "projects", "get", "--project", cfg.dopplerProject])).ok;
-        plugStep(step.label, ok, ok ? `project ${cfg.dopplerProject}` : "project not configured");
-        if (!ok) {
-          process.stderr.write(errorCard("setup", ["doppler project not configured.", "Follow the doppler setup prompts, then re-run ei setup."]));
-          return 3;
-        }
+      case "doppler-project": {
+        await runStep(step.label, async () => {
+          const authed = await run(["doppler", "whoami"]);
+          if (!authed.ok) {
+            const code = await runInteractive(["doppler", "login"]);
+            if (code !== 0) throw new Error("doppler login failed — re-run ei setup after authenticating");
+          }
+          const project = await run(["doppler", "projects", "get", "--project", cfg.dopplerProject]);
+          if (!project.ok) {
+            const created = await run(["doppler", "projects", "create", cfg.dopplerProject]);
+            if (!created.ok) throw new Error(`doppler projects create failed (${created.code})\n${created.stderr.slice(-1000)}`);
+          }
+          const conf = await run(["doppler", "configs", "get", cfg.dopplerConfig, "--project", cfg.dopplerProject]);
+          if (!conf.ok) {
+            const created = await run(["doppler", "configs", "create", cfg.dopplerConfig, "--project", cfg.dopplerProject]);
+            if (!created.ok) throw new Error(`doppler configs create failed (${created.code})\n${created.stderr.slice(-1000)}`);
+          }
+        });
         break;
       }
       case "install":
@@ -128,13 +138,13 @@ export async function setup(cfg: EiConfig, flags: Record<string, string | boolea
         break;
       case "build":
         await runStep(step.label, async () => {
-          const r = await run(["doppler", "run", "--project", cfg.dopplerProject, "--", "bunx", "eve", "build"], { cwd: path.join(cfg.checkoutPath, "packages/agent") });
+          const r = await run(["doppler", "run", "--project", cfg.dopplerProject, "--config", cfg.dopplerConfig, "--", "bunx", "eve", "build"], { cwd: path.join(cfg.checkoutPath, "packages/agent") });
           if (!r.ok) throw new Error(`eve build failed (${r.code})\n${r.stderr.slice(-2000)}`);
         });
         break;
       case "register":
         await runStep(step.label, async () => {
-          const r = await run(["doppler", "run", "--project", cfg.dopplerProject, "--", "bun", "scripts/register-commands.ts"], { cwd: cfg.checkoutPath });
+          const r = await run(["doppler", "run", "--project", cfg.dopplerProject, "--config", cfg.dopplerConfig, "--", "bun", "scripts/register-commands.ts"], { cwd: cfg.checkoutPath });
           if (!r.ok) throw new Error(`register-commands failed (${r.code})\n${r.stderr.slice(-2000)}`);
         });
         break;
@@ -155,7 +165,7 @@ export async function setup(cfg: EiConfig, flags: Record<string, string | boolea
       case "systemd": {
         const hasSystemd = Boolean(requireBin("systemctl"));
         if (!hasSystemd) {
-          plugStep(step.label, true, "run manually: doppler run --project " + cfg.dopplerProject + " -- bunx eve start");
+          plugStep(step.label, true, "run manually: doppler run --project " + cfg.dopplerProject + " --config " + cfg.dopplerConfig + " -- bunx eve start");
           break;
         }
         const user = (await run(["whoami"])).stdout.trim();

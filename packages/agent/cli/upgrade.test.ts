@@ -27,7 +27,7 @@ describe("decideUpgrade", () => {
 
 test("planUpgrade lists deterministic steps", () => {
   const plan = planUpgrade(
-    { checkoutPath: "/opt/ei", unitName: "ei", dopplerProject: "ei" },
+    { checkoutPath: "/opt/ei", unitName: "ei", dopplerProject: "ei", dopplerConfig: "prd" },
     { selfUpdate: true, agentUpdate: true, reason: "v0.4.0 -> v0.4.2" },
     "/opt/ei/bin/ei",
     "v0.4.2",

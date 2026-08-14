@@ -5,7 +5,7 @@ import type { EiConfig } from "./config";
 import { run } from "./run";
 
 export async function dopplerSecrets(cfg: EiConfig): Promise<Record<string, string>> {
-  const r = await run(["doppler", "secrets", "download", "--project", cfg.dopplerProject, "--no-file", "--format", "json"]);
+  const r = await run(["doppler", "secrets", "download", "--project", cfg.dopplerProject, "--config", cfg.dopplerConfig, "--no-file", "--format", "json"]);
   if (!r.ok) throw new Error(`doppler secrets download failed (exit ${r.code})`);
   try {
     return JSON.parse(r.stdout) as Record<string, string>;

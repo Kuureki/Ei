@@ -52,19 +52,21 @@ memory-core design is in
 ```bash
 git clone <url> Ei && cd Ei
 bun install
-doppler setup --project ei        # picks your dev/prod configs
+ei setup      # authenticates and creates project "ei" + config "prd" (see below)
 ```
 
-Set the environment values from `docs/ENV.md` (secrets + non-secrets) with
-`doppler secrets set <NAME>=<value>` or `doppler import`. Tables migrate
-automatically at boot — nothing to run.
+`ei setup` never writes a Doppler scope file: every command uses
+`--project ei --config prd` explicitly so other projects on the same host keep
+their own defaults. Set the environment values from `docs/ENV.md` (secrets +
+non-secrets) with `doppler secrets set --project ei --config prd <NAME>=<value>`
+or `doppler import`. Tables migrate automatically at boot — nothing to run.
 
 ## 4. Run
 
 Dev (hot reload, no gateway unless envs are set):
 
 ```bash
-doppler run -- bun run --cwd packages/agent dev
+doppler run --project ei --config prd -- bun run --cwd packages/agent dev
 ```
 
 Production, one systemd unit for the whole service:
@@ -80,7 +82,7 @@ Wants=network-online.target
 Type=simple
 User=youruser
 WorkingDirectory=/opt/ei/packages/agent
-ExecStart=/usr/local/bin/doppler run -- bunx eve start
+ExecStart=/usr/local/bin/doppler run --project ei --config prd -- bunx eve start
 Restart=on-failure
 RestartSec=5
 
@@ -94,9 +96,9 @@ Health: `curl http://127.0.0.1:3000/eve/v1/health`. `POST /intake` and
 ## 5. Register commands
 
 ```bash
-doppler run -- bun scripts/register-commands.ts          # PUT the provider command
-doppler run -- bun scripts/register-commands.ts --dry-run # preview payload
-doppler run -- bun scripts/register-commands.ts --list    # current registration
+doppler run --project ei --config prd -- bun scripts/register-commands.ts          # PUT the provider command
+doppler run --project ei --config prd -- bun scripts/register-commands.ts --dry-run # preview payload
+doppler run --project ei --config prd -- bun scripts/register-commands.ts --list    # current registration
 ```
 
 Registers one guild-scoped `/provider` command with subcommands `add`, `list`,
@@ -123,7 +125,7 @@ counts by source, and marks the active one.
 ## 7. Operations
 
 - Logs: `journalctl -u ei -f`.
-- Upgrade: `git pull && bun install && doppler run -- bunx eve build` then
+- Upgrade: `git pull && bun install && doppler run --project ei --config prd -- bunx eve build` then
   restart the unit. `ei upgrade` automates this; `ei status` shows the
   result of both.
 - The gateway logs fatal close codes and exits for systemd to restart; the

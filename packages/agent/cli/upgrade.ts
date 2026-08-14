@@ -33,8 +33,8 @@ export function planUpgrade(cfg: EiConfig, d: UpgradeDecision, exe: string, tag:
       `git checkout ${tag}`,
       `bun install --frozen-lockfile`,
       `bun run typecheck`,
-      `doppler run --project ${cfg.dopplerProject} -- bunx eve build`,
-      `doppler run --project ${cfg.dopplerProject} -- bun scripts/register-commands.ts`,
+      `doppler run --project ${cfg.dopplerProject} --config ${cfg.dopplerConfig} -- bunx eve build`,
+      `doppler run --project ${cfg.dopplerProject} --config ${cfg.dopplerConfig} -- bun scripts/register-commands.ts`,
       `systemctl restart ${cfg.unitName}`,
       `poll /eve/v1/health`,
     );
@@ -115,11 +115,11 @@ export async function upgrade(cfg: EiConfig, flags: Record<string, string | bool
     if (!r.ok) throw new Error(`typecheck failed (${r.code})\n${r.stderr.slice(-2000)}`);
   });
   await runStep("build", async () => {
-    const r = await run(["doppler", "run", "--project", cfg.dopplerProject, "--", "bunx", "eve", "build"], { cwd: path.join(cfg.checkoutPath, "packages/agent") });
+    const r = await run(["doppler", "run", "--project", cfg.dopplerProject, "--config", cfg.dopplerConfig, "--", "bunx", "eve", "build"], { cwd: path.join(cfg.checkoutPath, "packages/agent") });
     if (!r.ok) throw new Error(`eve build failed (${r.code})\n${r.stderr.slice(-2000)}`);
   });
   await runStep("register-commands", async () => {
-    const r = await run(["doppler", "run", "--project", cfg.dopplerProject, "--", "bun", "scripts/register-commands.ts"], { cwd: cfg.checkoutPath });
+    const r = await run(["doppler", "run", "--project", cfg.dopplerProject, "--config", cfg.dopplerConfig, "--", "bun", "scripts/register-commands.ts"], { cwd: cfg.checkoutPath });
     if (!r.ok) throw new Error(`register-commands failed (${r.code})\n${r.stderr.slice(-2000)}`);
   });
   await runStep("restart unit", async () => {

@@ -28,6 +28,8 @@ Never commit values; the repo contains names only.
 | `EVE_RUNTIME_URL` | optional; defaults to loopback `http://127.0.0.1:${PORT}` |
 | `EVE_GATEWAY_DISABLED` | `1` in eval/tests so no Discord connection is opened |
 | `EVAL_ACTIVE_MODEL_ID` | eval expectation for the active model id |
+| `DOPPLER_PROJECT` | `ei` — scope used by the agent's own `doppler secrets set` calls (e.g. `/provider add`) |
+| `DOPPLER_CONFIG` | `prd` — config scope for the agent's own `doppler secrets set` calls |
 
 ## Integration layer (slice 2)
 
@@ -39,16 +41,24 @@ Never commit values; the repo contains names only.
 
 ## Doppler CLI cheat sheet
 
-- `doppler setup --project ei`
-- `doppler run -- bun run --cwd packages/agent dev`
-- `doppler run -- bunx eve start`
-- `doppler secrets set PROVIDER_GROQ_API_KEY=sk-...`
-- `doppler secrets get WORKFLOW_POSTGRES_URL`
+The CLI always passes `--project ei --config prd` explicitly and never relies
+on `doppler setup` having written a scope file (a `.doppler` file would become
+the default for the whole checkout tree, shadowing other projects on the host).
+`ei setup` creates the project and config if they are missing. The agent saves
+keys itself: paste an API key into `/provider add` (Discord) and it writes the
+secret into Doppler with the scope above (`DOPPLER_PROJECT`/`DOPPLER_CONFIG`
+override the defaults).
+
+- `ei setup` (creates/verifies project `ei`, config `prd`, and authenticates)
+- `doppler run --project ei --config prd -- bun run --cwd packages/agent dev`
+- `doppler run --project ei --config prd -- bunx eve start`
+- `doppler secrets set --project ei --config prd PROVIDER_GROQ_API_KEY=sk-...`
+- `doppler secrets get --project ei --config prd WORKFLOW_POSTGRES_URL`
 
 ## CLI
 
 `ei` (see README) reads `$XDG_CONFIG_HOME/ei/config.json`
-(`checkoutPath`, `unitName`, `dopplerProject`), written by `ei setup`.
+(`checkoutPath`, `unitName`, `dopplerProject`, `dopplerConfig`), written by `ei setup`.
 It shells to `doppler`, `git`, `bun`, `systemctl`, and (for the unit steps)
 `sudo`. Secret values are never printed; `ei status`/`ei provider` read
 `WORKFLOW_POSTGRES_URL` from doppler to query the agent tables directly.
