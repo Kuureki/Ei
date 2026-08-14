@@ -37,6 +37,7 @@ export default defineAgent({
       "step.started": async () => resolveStepModel(process.env as Record<string, string | undefined>),
     },
   }),
+  modelContextWindowTokens: 250_000,
   experimental: {
     workflow: {
       world: "@workflow/world-postgres", // always; Postgres is required (§ spec 2026-08-12)
