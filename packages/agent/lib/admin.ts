@@ -76,6 +76,7 @@ export async function serviceAdminEvent(interaction: InteractionEvent, deps: Adm
           { ...TEXT_INPUT, custom_id: "name", label: "Provider name", required: true, min_length: 1, max_length: 40 },
           { ...TEXT_INPUT, custom_id: "base_url", label: "Base URL (OpenAI-compatible)", required: true, max_length: 200 },
           { ...TEXT_INPUT, custom_id: "key_env", label: "Doppler secret name (e.g. PROVIDER_GROQ_API_KEY)", required: true, max_length: 80 },
+          { ...TEXT_INPUT, custom_id: "api_key", label: "API key (value; saved to Doppler by default)", required: false, max_length: 2000 },
           { ...TEXT_INPUT, custom_id: "headers", label: "Extra headers JSON (optional; ${env:NAME} refs)", required: false, max_length: 500 },
         ],
       }, { fetchImpl: f });

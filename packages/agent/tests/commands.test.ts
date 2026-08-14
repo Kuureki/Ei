@@ -104,7 +104,30 @@ describe("handleCommand", () => {
 });
 
 describe("handleModalSubmit", () => {
-  test("provider_add registers and discovers", async () => {
+  test("provider_add registers, discovers, and saves the key to Doppler", async () => {
+    const ex = await memExecutor();
+    const fetchImpl = (async (url: unknown) =>
+      String(url).includes("models.dev")
+        ? new Response(JSON.stringify(FIXTURE), { status: 200 })
+        : new Response("nope", { status: 404 })) as typeof fetch;
+    const saved: Array<[string, string]> = [];
+    const { reply } = await handleModalSubmit(
+      { ex, env: ENV, fetchImpl, setSecret: async (k, v) => void saved.push([k, v]) },
+      "provider_add",
+      {
+        name: "Groq",
+        base_url: "https://api.groq.com/openai/v1",
+        key_env: "PROVIDER_GROQ_API_KEY",
+        api_key: "sk-test-123",
+      },
+    );
+    expect(reply).toContain("Groq");
+    expect(reply).toContain("Registered");
+    expect(reply).toContain("PROVIDER_GROQ_API_KEY saved to Doppler");
+    expect(saved).toEqual([["PROVIDER_GROQ_API_KEY", "sk-test-123"]]);
+  });
+
+  test("provider_add without an api_key keeps the provider but asks for the key", async () => {
     const ex = await memExecutor();
     const fetchImpl = (async (url: unknown) =>
       String(url).includes("models.dev")
@@ -115,8 +138,8 @@ describe("handleModalSubmit", () => {
       base_url: "https://api.groq.com/openai/v1",
       key_env: "PROVIDER_GROQ_API_KEY",
     });
-    expect(reply).toContain("Groq");
     expect(reply).toContain("Registered");
+    expect(reply).toContain("re-run /provider add");
   });
 });
 

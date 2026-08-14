@@ -61,6 +61,8 @@ describe("serviceAdminEvent", () => {
     );
     expect(calls[0].body.type).toBe(9);
     expect(calls[0].body.data.custom_id).toBe("provider_add");
+    const fields = calls[0].body.data.components[0].components.map((c: { custom_id: string }) => c.custom_id);
+    expect(fields).toContain("api_key");
     expect(calls).toHaveLength(1);
   });
 

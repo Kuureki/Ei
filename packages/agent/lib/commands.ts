@@ -3,6 +3,7 @@ import { isPublicHttpUrl } from "@ei/shared";
 import { generateText } from "ai";
 import type { SqlExecutor } from "./db";
 import { discoverModels, type DiscoverModelRow } from "./discovery";
+import { setSecretInDoppler } from "./doppler";
 import { buildLanguageModel } from "./model";
 import {
   cacheCounts,
@@ -22,6 +23,8 @@ export interface CommandDeps {
   ex: SqlExecutor;
   env: Record<string, string | undefined>;
   fetchImpl?: typeof fetch;
+  /** Writes a secret into Doppler (project ei / config prd by default). */
+  setSecret?: (key: string, value: string) => Promise<void>;
 }
 
 export const KEY_ENV_PATTERN = /^[A-Z][A-Z0-9_]*$/;
@@ -108,6 +111,7 @@ export async function handleModalSubmit(
   const name = (values.name ?? "").trim();
   const baseUrl = (values.base_url ?? "").trim();
   const keyEnv = (values.key_env ?? "").trim();
+  const apiKey = (values.api_key ?? "").trim();
   if (!name || !baseUrl || !keyEnv) return { reply: "name, base_url, and key_env are required." };
   if (!isPublicHttpUrl(baseUrl)) return { reply: "base_url must be a public http(s) URL." };
   if (!isValidKeyEnv(keyEnv)) return { reply: "key_env must look like an env var name (e.g. PROVIDER_GROQ_API_KEY)." };
@@ -118,9 +122,19 @@ export async function handleModalSubmit(
     if (existing) return { reply: `Provider "${name}" already exists. Use /provider edit.` };
     await upsertProvider(deps.ex, { name, base_url: baseUrl, key_env: keyEnv, headers_json: headers });
     const rows = await runDiscovery(deps, slugify(name));
-    const keySet = Boolean(deps.env[keyEnv]);
-    const tip = keySet ? "" : `\nSet its secret with: doppler secrets set ${keyEnv}=...`;
-    return { reply: `Registered "${name}" at ${baseUrl}. ${rows.length} model(s) cached.${tip}` };
+    const setSecret = deps.setSecret ?? setSecretInDoppler(deps.env);
+    let secretNote: string;
+    if (apiKey) {
+      try {
+        await setSecret(keyEnv, apiKey);
+        secretNote = ` Secret ${keyEnv} saved to Doppler.`;
+      } catch (err) {
+        secretNote = ` Registered, but saving ${keyEnv} to Doppler failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    } else {
+      secretNote = ` Secret ${keyEnv} not saved — re-run /provider add with the API key field filled and I will store it in Doppler.`;
+    }
+    return { reply: `Registered "${name}" at ${baseUrl}. ${rows.length} model(s) cached.${secretNote}` };
   } catch (err) {
     return { reply: `Add failed: ${err instanceof Error ? err.message : String(err)}` };
   }
@@ -164,7 +178,7 @@ export async function testProvider(deps: CommandDeps, options: Record<string, st
   const p = await getProvider(deps.ex, name);
   if (!p) return { reply: `No provider named "${name}".` };
   const apiKey = deps.env[p.key_env];
-  if (!apiKey) return { reply: `Secret ${p.key_env} is not set in this environment. Set it with: doppler secrets set ${p.key_env}=...` };
+  if (!apiKey) return { reply: `Secret ${p.key_env} is not set in this environment. Run /provider add and fill the API key field — I will save it to Doppler.` };
   const cached = await deps.ex.query(`select model_id from models_cache where provider_id = $1 order by model_id limit 1`, [p.id]);
   const active = await getActiveModel(deps.ex);
   const modelId =
