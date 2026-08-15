@@ -93,6 +93,34 @@ describe("mapMessageCreate", () => {
     expect(m!.threadId).toBe("t1");
     expect(m!.threadRequested).toBe(false);
   });
+  test("keeps owner thread messages resolved via REST channel type", () => {
+    const m = mapMessageCreate(
+      {
+        id: "m4c",
+        author: { id: OWNER, bot: false },
+        channel_id: "t1",
+        guild_id: "g1",
+        content: "still here",
+        attachments: [],
+      },
+      OWNER,
+      BOT,
+      11,
+    );
+    expect(m).not.toBeNull();
+    expect(m!.threadId).toBe("t1");
+    expect(m!.threadRequested).toBe(false);
+  });
+  test("drops owner guild channel messages without a mention even when type is known", () => {
+    expect(
+      mapMessageCreate(
+        { id: "m4d", author: { id: OWNER, bot: false }, channel_id: "c1", content: "hi", attachments: [] },
+        OWNER,
+        BOT,
+        0,
+      ),
+    ).toBeNull();
+  });
   test("keeps owner DMs without any mention", () => {
     const m = mapMessageCreate(
       { id: "m5", author: { id: OWNER }, channel_id: "dm1", channel: { type: 1 }, content: "dm", attachments: [] },

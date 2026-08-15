@@ -63,16 +63,28 @@ function mentionsBot(d: any, botId: string): boolean {
   return new RegExp(`<@!?${botId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}>`).test(String(d.content ?? ""));
 }
 
-export function mapMessageCreate(d: any, ownerId: string, botId = ""): InboundMessage | null {
+export function mapMessageCreate(
+  d: any,
+  ownerId: string,
+  botId = "",
+  knownChannelType?: number | null,
+): InboundMessage | null {
   if (d.author?.bot) return null;
   if (String(d.author.id) !== String(ownerId)) return null;
-  // MESSAGE_CREATE has no `channel` object (only channel_id); a message
-  // inside a thread carries the thread object itself in `d.thread`.
+  // MESSAGE_CREATE carries no `channel` object (only channel_id) and, for
+  // messages inside a thread, no `thread` object either in this setup — the
+  // caller resolves the channel type via REST (cached) and passes it here.
   const channelType = Number(d.channel?.type ?? 0);
   const threadType = Number(d.thread?.type ?? 0);
+  const knownThread = knownChannelType === 11 || knownChannelType === 12;
   const isThread =
-    typeof d.thread?.id === "string" || channelType === 11 || channelType === 12 || threadType === 11 || threadType === 12;
-  const isDm = channelType === 1;
+    typeof d.thread?.id === "string" ||
+    channelType === 11 ||
+    channelType === 12 ||
+    threadType === 11 ||
+    threadType === 12 ||
+    knownThread;
+  const isDm = channelType === 1 || knownChannelType === 1;
   const threadRequested = !isThread && !isDm && mentionsBot(d, botId);
   if (!isThread && !isDm && !threadRequested) return null;
   const attachments: InboundAttachment[] = (d.attachments ?? [])
@@ -87,7 +99,11 @@ export function mapMessageCreate(d: any, ownerId: string, botId = ""): InboundMe
     userId: String(d.author.id),
     guildId: d.guild_id ? String(d.guild_id) : "0",
     channelId: String(d.channel_id),
-    threadId: d.thread?.id ? String(d.thread.id) : undefined,
+    threadId: d.thread?.id
+      ? String(d.thread.id)
+      : knownThread
+        ? String(d.channel_id)
+        : undefined,
     messageId: String(d.id ?? ""),
     threadRequested,
     text: [
@@ -143,6 +159,7 @@ export class DiscordGateway {
   private stopped = false;
   private resumeUrl = DEFAULT_GATEWAY_URL;
   private botId = "";
+  private channelTypes = new Map<string, number>();
 
   constructor(private cfg: GatewayConfig) {
     if (cfg.gatewayUrl) this.resumeUrl = cfg.gatewayUrl;
@@ -182,7 +199,7 @@ export class DiscordGateway {
         ),
       );
     };
-    ws.onmessage = (ev) => {
+    ws.onmessage = async (ev) => {
       const data = JSON.parse(String(ev.data)) as { op: number; s?: number | null; t?: string; d?: any };
       if (typeof data.s === "number") this.sequence = data.s;
       switch (data.op) {
@@ -198,7 +215,8 @@ export class DiscordGateway {
           } else if (data.t === "RESUMED") {
             this.cfg.log?.("RESUMED");
           } else if (data.t === "MESSAGE_CREATE") {
-            const msg = mapMessageCreate(data.d, this.cfg.ownerId, this.botId);
+            const type = await this.resolveChannelType(String(data.d.channel_id ?? ""));
+            const msg = mapMessageCreate(data.d, this.cfg.ownerId, this.botId, type);
             if (msg) this.cfg.onMessage(msg);
           } else if (data.t === "INTERACTION_CREATE") {
             const ev = mapInteractionCreate(data.d, this.cfg.ownerId);
@@ -234,5 +252,31 @@ export class DiscordGateway {
   private stopHeartbeat(): void {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = undefined;
+  }
+
+  // MESSAGE_CREATE events carry only channel_id. The bot does not receive
+  // `channel`/`thread` objects for in-thread messages, so resolve the channel
+  // type via REST once per channel id and cache it.
+  private async resolveChannelType(channelId: string): Promise<number | null> {
+    if (!channelId) return null;
+    const cached = this.channelTypes.get(channelId);
+    if (cached !== undefined) return cached >= 0 ? cached : null;
+    try {
+      const res = await fetch(`https://discord.com/api/v10/channels/${channelId}`, {
+        headers: { authorization: `Bot ${this.cfg.token}` },
+      });
+      if (!res.ok) {
+        this.channelTypes.set(channelId, -1);
+        return null;
+      }
+      const ch = (await res.json()) as { type?: number };
+      const type = Number(ch.type ?? -1);
+      this.channelTypes.set(channelId, type);
+      return type >= 0 ? type : null;
+    } catch (err) {
+      this.cfg.log?.(`channel type resolve failed ${channelId} ${err}`);
+      this.channelTypes.set(channelId, -1);
+      return null;
+    }
   }
 }
