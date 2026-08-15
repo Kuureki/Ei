@@ -5,7 +5,7 @@ import { syncEnv } from "./env-sync";
 const cfg = { checkoutPath: "/opt/ei", unitName: "ei", dopplerProject: "ei", dopplerConfig: "prd" };
 
 describe("syncEnv", () => {
-  test("prompts only for missing values, skips empties, pins doppler scope", async () => {
+  test("prompts only for missing values, skips empties, never writes doppler scope", async () => {
     const asked: string[] = [];
     const answers: Record<string, string> = {
       WORKFLOW_POSTGRES_URL: "postgres://db",
@@ -27,9 +27,8 @@ describe("syncEnv", () => {
     expect(asked).not.toContain("AGENT_OWNER_DISCORD_ID");
     expect(saved).toContainEqual(["WORKFLOW_POSTGRES_URL", "postgres://db"]);
     expect(saved).toContainEqual(["DISCORD_BOT_TOKEN", "tok-1"]);
-    expect(saved).toContainEqual(["DOPPLER_PROJECT", "ei"]);
-    expect(saved).toContainEqual(["DOPPLER_CONFIG", "prd"]);
-    expect(set).toContain("DOPPLER_PROJECT");
+    expect(saved.some(([k]) => k.startsWith("DOPPLER_"))).toBe(false);
+    expect(set.some((k) => k.startsWith("DOPPLER_"))).toBe(false);
     expect(skipped).toEqual([
       "DISCORD_APP_ID",
       "AGENT_OWNER_GUILD_ID",
@@ -55,6 +54,6 @@ describe("syncEnv", () => {
     expect(asked).not.toContain("DISCORD_BOT_TOKEN");
     expect(asked).not.toContain("PORT");
     expect(skipped).toContain("INNERNET_KEY");
-    expect(set).toContain("DOPPLER_CONFIG");
+    expect(set.some((k) => k.startsWith("DOPPLER_"))).toBe(false);
   });
 });

@@ -28,8 +28,11 @@ Never commit values; the repo contains names only.
 | `EVE_RUNTIME_URL` | optional; defaults to loopback `http://127.0.0.1:${PORT}` |
 | `EVE_GATEWAY_DISABLED` | `1` in eval/tests so no Discord connection is opened |
 | `EVAL_ACTIVE_MODEL_ID` | eval expectation for the active model id |
-| `DOPPLER_PROJECT` | `ei` — scope used by the agent's own `doppler secrets set` calls (e.g. `/provider add`) |
-| `DOPPLER_CONFIG` | `prd` — config scope for the agent's own `doppler secrets set` calls |
+
+`DOPPLER_PROJECT`/`DOPPLER_CONFIG` are **not** stored here — they are reserved
+names that `doppler secrets set` rejects, and `doppler run --project/--config`
+injects them automatically. The agent's own `doppler secrets set` calls read
+them from that injected env (fallback: `ei`/`prd`).
 
 ## Integration layer (slice 2)
 
@@ -47,8 +50,8 @@ the default for the whole checkout tree, shadowing other projects on the host).
 `ei setup` creates the project and config if they are missing, then prompts
 for every unset value it needs (secrets masked) and syncs them into Doppler
 before building. The agent saves keys itself: paste an API key into
-`/provider add` (Discord) and it writes the secret into Doppler with the scope
-above (`DOPPLER_PROJECT`/`DOPPLER_CONFIG` override the defaults).
+`/provider add` (Discord) and it writes the secret into Doppler under
+`doppler run`'s injected scope (`ei`/`prd`, or your `--config` override).
 
 - `ei setup` (creates/verifies project `ei`, config `prd`, and authenticates)
 - `doppler run --project ei --config prd -- bun run --cwd packages/agent dev`

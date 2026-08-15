@@ -37,6 +37,9 @@ export async function syncEnv(cfg: EiConfig, deps: EnvSyncDeps): Promise<{ set: 
   const entries: Array<[string, string]> = [];
   const skipped: string[] = [];
   for (const def of SETUP_ENV_VARS) {
+    // DOPPLER_* names are reserved by Doppler (`doppler secrets set` rejects
+    // them) and are injected automatically by `doppler run --project/--config`.
+    if (def.key.startsWith("DOPPLER_")) continue;
     const current = existing[def.key];
     if (current && current.trim()) continue;
     const hint = process.env[def.key] ?? def.default ?? "";
@@ -47,8 +50,6 @@ export async function syncEnv(cfg: EiConfig, deps: EnvSyncDeps): Promise<{ set: 
     }
     entries.push([def.key, value.trim()]);
   }
-  // Scope pins for the agent's own in-process doppler calls.
-  entries.push(["DOPPLER_PROJECT", cfg.dopplerProject], ["DOPPLER_CONFIG", cfg.dopplerConfig]);
   if (entries.length) await deps.setSecrets(entries);
   return { set: entries.map(([k]) => k), skipped };
 }
