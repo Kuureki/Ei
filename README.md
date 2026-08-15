@@ -113,6 +113,9 @@ using `AGENT_OWNER_GUILD_ID`.
    merged with models.dev metadata; unmatched extra headers/fields are ignored
    safely.
 2. Set the actual value: `doppler secrets set PROVIDER_GROQ_API_KEY=sk-...`.
+   Or do both from the CLI — it reuses the exact same flow as the modal:
+   `ei provider add <name> <base_url> [--key-env NAME] [--api-key KEY] [--headers JSON]`
+   (no `--api-key` prompts masked; an empty answer registers without a key).
 3. `/provider test <name>` — one-token completion against the provider.
 4. `/provider refresh <name>` — re-discover models from `/v1/models` +
    models.dev.
@@ -158,7 +161,7 @@ against a `.sha256` sidecar before install.
                  latest tag (install, build, re-register, restart, health)
     ei status    health card — agent, systemd, model, providers, schedules
     ei logs      tail/follow the systemd unit
-    ei provider  list | test | refresh | use the active model off-Discord
+    ei provider  add | list | test | refresh | use the active model off-Discord
     ei evals     run the eval suite under doppler
     ei doctor    preflight report (never mutates)
 

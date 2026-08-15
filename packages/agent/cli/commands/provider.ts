@@ -10,12 +10,14 @@ import {
   setActiveModel,
 } from "../../lib/providers";
 import { discoverModels } from "../../lib/discovery";
-import { testProvider as libTestProvider } from "../../lib/commands";
+import { handleModalSubmit, testProvider as libTestProvider, type CommandDeps } from "../../lib/commands";
+import { setSecretInDoppler } from "../../lib/doppler";
 import type { EiConfig } from "../config";
 import { openDb, safeSecrets, mergedEnv } from "../env";
 import { card, errorCard } from "../ui/card";
 import { table } from "../ui/table";
 import { theme } from "../ui/theme";
+import { secretText } from "../ui/prompts";
 import { ArgsError } from "../args";
 
 export interface ProviderListRow {
@@ -91,6 +93,29 @@ export async function provider(
       if (activeModel) process.stdout.write(theme.dim(`active: ${activeModel}\n`));
       return 0;
     }
+    case "add": {
+      const name = positionals[1];
+      const baseUrl = positionals[2];
+      if (!name || !baseUrl) throw new ArgsError("usage: ei provider add <name> <base_url> [--key-env NAME] [--api-key KEY] [--headers JSON]");
+      const defaultKeyEnv = `PROVIDER_${name.replace(/[^a-zA-Z0-9]+/g, "_").toUpperCase()}_API_KEY`;
+      const keyEnv = typeof flags["key-env"] === "string" ? flags["key-env"] : defaultKeyEnv;
+      const headers = typeof flags.headers === "string" ? flags.headers : "";
+      let apiKey = typeof flags["api-key"] === "string" ? flags["api-key"] : "";
+      if (!apiKey) {
+        const entered = await secretText(`API key for ${name} (optional; saved to Doppler as ${keyEnv})`, "", "");
+        apiKey = entered ?? "";
+      }
+      const deps: CommandDeps = { ex, env, fetchImpl: fetch, setSecret: setSecretInDoppler(env) };
+      const { reply } = await handleModalSubmit(deps, "provider_add", {
+        name,
+        base_url: baseUrl,
+        key_env: keyEnv,
+        api_key: apiKey,
+        headers,
+      });
+      process.stdout.write(reply + "\n");
+      return 0;
+    }
     case "test": {
       const name = positionals[1];
       if (!name) throw new ArgsError("usage: ei provider test <name>");
@@ -119,6 +144,7 @@ export async function provider(
     }
     default: {
       process.stderr.write(card("ei provider", [
+        { key: "add <name> <base_url>", value: "register a provider (--key-env, --api-key, --headers)" },
         { key: "list", value: "show providers, key status, model counts" },
         { key: "test <name>", value: "one-token probe against the provider" },
         { key: "refresh <name>", value: "re-discover models from /v1/models + models.dev" },
