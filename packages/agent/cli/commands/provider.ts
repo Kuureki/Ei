@@ -4,10 +4,12 @@ import {
   cacheCounts,
   getActiveModel,
   getProvider,
+  isValidReasoningLevel,
   listModelsForAutocomplete,
   listProviders,
   replaceModels,
   setActiveModel,
+  REASONING_LEVELS,
 } from "../../lib/providers";
 import { discoverModels } from "../../lib/discovery";
 import { handleModalSubmit, testProvider as libTestProvider, type CommandDeps } from "../../lib/commands";
@@ -49,11 +51,20 @@ export async function providerList(ex: SqlExecutor, env: Record<string, string |
   return { providers: rows, activeModel: active ? `${active.provider_id}/${active.model_id}` : null };
 }
 
-export async function providerUse(ex: SqlExecutor, modelId: string): Promise<void> {
+export async function providerUse(
+  ex: SqlExecutor,
+  modelId: string,
+  reasoningLevel?: string,
+): Promise<{ modelId: string; reasoning: string | null }> {
   const rows = await listModelsForAutocomplete(ex, modelId);
   const match = rows.find((r) => r.model_id === modelId);
   if (!match) throw new Error(`Unknown model "${modelId}". Run ei provider list first.`);
-  await setActiveModel(ex, { provider_id: match.provider_id, model_id: modelId });
+  const level = reasoningLevel ?? null;
+  if (level !== null && !isValidReasoningLevel(level)) {
+    throw new Error(`Invalid --reasoning "${level}". Choose from: ${REASONING_LEVELS.join(", ")}.`);
+  }
+  await setActiveModel(ex, { provider_id: match.provider_id, model_id: modelId, reasoning_level: level });
+  return { modelId, reasoning: level };
 }
 
 export async function provider(
@@ -137,9 +148,11 @@ export async function provider(
     }
     case "use": {
       const modelId = positionals[1];
-      if (!modelId) throw new ArgsError("usage: ei provider use <model>");
-      await providerUse(ex, modelId);
-      process.stdout.write(`${theme.ok("✔")} Active model set to ${modelId}. Applies from your next message.\n`);
+      if (!modelId) throw new ArgsError("usage: ei provider use <model> [--reasoning none|minimal|low|medium|high|xhigh|max]");
+      const reasoning = typeof flags.reasoning === "string" ? flags.reasoning : undefined;
+      const { modelId: used, reasoning: level } = await providerUse(ex, modelId, reasoning);
+      const suffix = level ? ` with reasoning=${theme.ok(level)}` : "";
+      process.stdout.write(`${theme.ok("✔")} Active model set to ${used}${suffix}. Applies from your next message.\n`);
       return 0;
     }
     default: {
@@ -148,7 +161,7 @@ export async function provider(
         { key: "list", value: "show providers, key status, model counts" },
         { key: "test <name>", value: "one-token probe against the provider" },
         { key: "refresh <name>", value: "re-discover models from /v1/models + models.dev" },
-        { key: "use <model>", value: "set the active model" },
+        { key: "use <model>", value: "set the active model (--reasoning none|minimal|low|medium|high|xhigh|max)" },
       ]));
       return sub ? 2 : 0;
     }

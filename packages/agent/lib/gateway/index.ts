@@ -26,6 +26,10 @@ export async function forwardMessage(
   deps: { token: string; secret: string; intakeUrl: string; fetchImpl?: typeof fetch },
 ): Promise<void> {
   const f = deps.fetchImpl ?? fetch;
+  if (msg.threadRequested && msg.messageId) {
+    const threadId = await createThreadForMessage(f, deps.token, msg.channelId, msg.messageId, msg.text);
+    if (threadId) msg.threadId = threadId;
+  }
   const files: Array<{ name: string; mediaType: string; base64: string }> = [];
   for (const a of msg.attachments) {
     const res = await f(a.url, { headers: { authorization: `Bot ${deps.token}` } });
@@ -54,6 +58,55 @@ export async function forwardMessage(
   const bodyText = await res.text().catch(() => "");
   if (!res.ok && bodyText !== "ignored") console.error("intake failed", res.status, bodyText);
   else console.log("intake ok");
+}
+
+// Mentioned in a guild channel: create a thread on the message so the
+// conversation continues there without further mentions. Failures degrade
+// gracefully to replying in the channel.
+async function createThreadForMessage(
+  f: typeof fetch,
+  token: string,
+  channelId: string,
+  messageId: string,
+  text: string,
+): Promise<string | null> {
+  const name = threadNameFrom(text);
+  try {
+    const res = await f(`https://discord.com/api/v10/channels/${channelId}/threads`, {
+      method: "POST",
+      headers: { authorization: `Bot ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        name,
+        type: 11, // GUILD_PUBLIC_THREAD
+        start_message_id: messageId,
+        auto_archive_duration: 1440,
+      }),
+    });
+    if (!res.ok) {
+      console.error("thread create failed", res.status, await res.text().catch(() => ""));
+      return null;
+    }
+    const thread = (await res.json()) as { id?: string };
+    if (!thread.id) return null;
+    await f(`https://discord.com/api/v10/channels/${thread.id}/thread-members/@me`, {
+      method: "PUT",
+      headers: { authorization: `Bot ${token}` },
+    }).catch(() => {});
+    console.log("thread created", thread.id);
+    return thread.id;
+  } catch (err) {
+    console.error("thread create error", err);
+    return null;
+  }
+}
+
+function threadNameFrom(text: string): string {
+  const cleaned = text
+    .replace(/<@!?\d+>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (cleaned.length <= 50) return cleaned || "conversation";
+  return `${cleaned.slice(0, 49)}…`;
 }
 
 export async function forwardInteraction(

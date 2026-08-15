@@ -46,7 +46,7 @@ describe("providers", () => {
     const ex = await memExecutor();
     await upsertProvider(ex, { name: "Groq", base_url: "https://api.groq.com/openai/v1", key_env: "K" });
     await setActiveModel(ex, { provider_id: "groq", model_id: "m1" });
-    expect(await getActiveModel(ex)).toEqual({ provider_id: "groq", model_id: "m1" });
+    expect(await getActiveModel(ex)).toEqual({ provider_id: "groq", model_id: "m1", reasoning_level: null });
     await setActiveModel(ex, null);
     expect(await getActiveModel(ex)).toBeNull();
   });
@@ -60,6 +60,6 @@ describe("providers", () => {
     expect(await getActiveModel(ex)).toBeNull();
     await setActiveModel(ex, { provider_id: "other", model_id: "m2" });
     await clearActiveIfProvider(ex, "groq");
-    expect(await getActiveModel(ex)).toEqual({ provider_id: "other", model_id: "m2" });
+    expect(await getActiveModel(ex)).toEqual({ provider_id: "other", model_id: "m2", reasoning_level: null });
   });
 });

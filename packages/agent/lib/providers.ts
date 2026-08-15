@@ -24,9 +24,17 @@ export interface ProviderInput {
   enabled?: boolean;
 }
 
+export const REASONING_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export type ReasoningLevel = (typeof REASONING_LEVELS)[number];
+
+export function isValidReasoningLevel(v: unknown): v is ReasoningLevel {
+  return typeof v === "string" && (REASONING_LEVELS as readonly string[]).includes(v);
+}
+
 export interface ActiveModelConfig {
   provider_id: string;
   model_id: string;
+  reasoning_level?: string | null;
 }
 
 export function slugify(name: string): string {
@@ -94,14 +102,21 @@ export async function getActiveModel(ex: SqlExecutor): Promise<ActiveModelConfig
   if (!r.rows.length) return null;
   const v = jsonValue(r.rows[0].value) as Partial<ActiveModelConfig> | null;
   if (!v || typeof v.provider_id !== "string" || typeof v.model_id !== "string") return null;
-  return { provider_id: v.provider_id, model_id: v.model_id };
+  return {
+    provider_id: v.provider_id,
+    model_id: v.model_id,
+    reasoning_level: isValidReasoningLevel(v.reasoning_level) ? v.reasoning_level : null,
+  };
 }
 
 export async function setActiveModel(ex: SqlExecutor, active: ActiveModelConfig | null): Promise<void> {
+  const normalized = active
+    ? { ...active, reasoning_level: isValidReasoningLevel(active.reasoning_level) ? active.reasoning_level : null }
+    : null;
   await ex.query(
     `insert into config (key, value, version) values ('active_model', $1::jsonb, 1)
      on conflict (key) do update set value = excluded.value, version = config.version + 1`,
-    [JSON.stringify(active)],
+    [JSON.stringify(normalized)],
   );
 }
 

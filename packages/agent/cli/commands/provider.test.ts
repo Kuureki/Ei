@@ -33,4 +33,15 @@ test("providerUse sets the active model", async () => {
   await providerUse(ex, "m1");
   const r = await ex.query(`select value from config where key = 'active_model'`);
   expect((jsonValue(r.rows[0].value) as { model_id: string }).model_id).toBe("m1");
+  expect((jsonValue(r.rows[0].value) as { reasoning_level: unknown }).reasoning_level).toBeNull();
+});
+
+test("providerUse persists and validates --reasoning", async () => {
+  const ex = await memExecutor();
+  await ex.query(`insert into providers (id, name, base_url, key_env) values ('groq', 'Groq', 'https://api.groq.com/openai/v1', 'PROVIDER_GROQ_API_KEY')`);
+  await ex.query(`insert into models_cache (provider_id, model_id, source) values ('groq', 'm1', 'endpoint')`);
+  await providerUse(ex, "m1", "high");
+  const r = await ex.query(`select value from config where key = 'active_model'`);
+  expect((jsonValue(r.rows[0].value) as { reasoning_level: string }).reasoning_level).toBe("high");
+  await expect(providerUse(ex, "m1", "turbo")).rejects.toThrow("Invalid --reasoning");
 });

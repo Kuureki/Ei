@@ -1,6 +1,6 @@
 // Build a live AI SDK LanguageModel for a provider from its config + env.
 import { createOpenAI } from "@ai-sdk/openai";
-import type { LanguageModel } from "ai";
+import { wrapLanguageModel, type LanguageModel, type LanguageModelMiddleware } from "ai";
 
 export interface ModelSource {
   provider_id: string;
@@ -30,9 +30,28 @@ export function renderHeaders(
   return out;
 }
 
+// Injects reasoningEffort into every call for the given provider; providers
+// that don't understand the option ignore it (OpenAI-compatible convention).
+export function reasoningMiddleware(providerId: string, level: string): LanguageModelMiddleware {
+  return {
+    specificationVersion: "v4",
+    transformParams: async ({ params }) => {
+      const existing = (params.providerOptions?.[providerId] ?? {}) as Record<string, unknown>;
+      return {
+        ...params,
+        providerOptions: {
+          ...params.providerOptions,
+          [providerId]: { ...existing, reasoningEffort: level },
+        },
+      };
+    },
+  };
+}
+
 export function buildLanguageModel(
   src: ModelSource,
   env: Record<string, string | undefined>,
+  reasoningLevel?: string | null,
 ): LanguageModel | null {
   const apiKey = env[src.key_env];
   if (!apiKey) return null;
@@ -43,7 +62,11 @@ export function buildLanguageModel(
     apiKey,
     headers,
   });
-  return openai.chat(src.model_id);
+  const base = openai.chat(src.model_id);
+  if (reasoningLevel && reasoningLevel !== "none") {
+    return wrapLanguageModel({ model: base, middleware: reasoningMiddleware(src.provider_id, reasoningLevel) });
+  }
+  return base;
 }
 
 // Step-scoped resolver: a live LanguageModel returned from step.started;
@@ -67,6 +90,7 @@ export async function resolveStepModel(env: Record<string, string | undefined>):
         model_id: active.model_id,
       },
       env,
+      active.reasoning_level,
     );
   } catch {
     return null;

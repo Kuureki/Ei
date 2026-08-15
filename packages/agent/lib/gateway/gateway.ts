@@ -21,6 +21,8 @@ export interface InboundMessage {
   guildId: string;
   channelId: string;
   threadId?: string;
+  messageId: string;
+  threadRequested?: boolean;
   text: string;
   attachments: InboundAttachment[];
 }
@@ -51,9 +53,28 @@ export const INTENTS = {
   DIRECT_MESSAGES: 1 << 12,
 };
 
-export function mapMessageCreate(d: any, ownerId: string): InboundMessage | null {
+const CHANNEL_DM = 1;
+const CHANNEL_PUBLIC_THREAD = 11;
+const CHANNEL_PRIVATE_THREAD = 12;
+
+function mentionsBot(d: any, botId: string): boolean {
+  if (!botId) return false;
+  if (Array.isArray(d.mentions) && d.mentions.some((u: any) => String(u?.id) === String(botId))) return true;
+  return new RegExp(`<@!?${botId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}>`).test(String(d.content ?? ""));
+}
+
+export function mapMessageCreate(d: any, ownerId: string, botId = ""): InboundMessage | null {
   if (d.author?.bot) return null;
   if (String(d.author.id) !== String(ownerId)) return null;
+  // MESSAGE_CREATE has no `channel` object (only channel_id); a message
+  // inside a thread carries the thread object itself in `d.thread`.
+  const channelType = Number(d.channel?.type ?? 0);
+  const threadType = Number(d.thread?.type ?? 0);
+  const isThread =
+    typeof d.thread?.id === "string" || channelType === 11 || channelType === 12 || threadType === 11 || threadType === 12;
+  const isDm = channelType === 1;
+  const threadRequested = !isThread && !isDm && mentionsBot(d, botId);
+  if (!isThread && !isDm && !threadRequested) return null;
   const attachments: InboundAttachment[] = (d.attachments ?? [])
     .filter((a: any) => a.size <= 10 * 1024 * 1024)
     .map((a: any) => ({
@@ -67,6 +88,8 @@ export function mapMessageCreate(d: any, ownerId: string): InboundMessage | null
     guildId: d.guild_id ? String(d.guild_id) : "0",
     channelId: String(d.channel_id),
     threadId: d.thread?.id ? String(d.thread.id) : undefined,
+    messageId: String(d.id ?? ""),
+    threadRequested,
     text: [
       typeof d.content === "string" ? d.content : "",
       ...(d.embeds ?? [])
@@ -119,6 +142,7 @@ export class DiscordGateway {
   private heartbeatIntervalMs = 41_250;
   private stopped = false;
   private resumeUrl = DEFAULT_GATEWAY_URL;
+  private botId = "";
 
   constructor(private cfg: GatewayConfig) {
     if (cfg.gatewayUrl) this.resumeUrl = cfg.gatewayUrl;
@@ -169,11 +193,12 @@ export class DiscordGateway {
         case 0: {
           if (data.t === "READY") {
             this.sessionId = data.d.session_id;
+            this.botId = String(data.d.user?.id ?? "");
             this.cfg.log?.(`READY as ${data.d.user.username}`);
           } else if (data.t === "RESUMED") {
             this.cfg.log?.("RESUMED");
           } else if (data.t === "MESSAGE_CREATE") {
-            const msg = mapMessageCreate(data.d, this.cfg.ownerId);
+            const msg = mapMessageCreate(data.d, this.cfg.ownerId, this.botId);
             if (msg) this.cfg.onMessage(msg);
           } else if (data.t === "INTERACTION_CREATE") {
             const ev = mapInteractionCreate(data.d, this.cfg.ownerId);

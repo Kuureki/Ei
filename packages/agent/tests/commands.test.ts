@@ -72,7 +72,7 @@ describe("handleCommand", () => {
     const { reply } = await handleCommand({ ex, env: ENV }, "use", { model: "llama-3.3-70b-versatile" });
     expect(reply).toContain("llama-3.3-70b-versatile");
     const cfg = await ex.query(`select value from config where key = 'active_model'`);
-    expect(jsonValue(cfg.rows[0].value)).toEqual({ provider_id: "groq", model_id: "llama-3.3-70b-versatile" });
+    expect(jsonValue(cfg.rows[0].value)).toEqual({ provider_id: "groq", model_id: "llama-3.3-70b-versatile", reasoning_level: null });
   });
   test("use rejects an unknown model id", async () => {
     const ex = await memExecutor();

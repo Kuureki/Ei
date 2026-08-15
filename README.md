@@ -120,7 +120,11 @@ using `AGENT_OWNER_GUILD_ID`.
 4. `/provider refresh <name>` — re-discover models from `/v1/models` +
    models.dev.
 5. `/provider use <model>` — autocomplete from the live catalog; the active
-   model applies from your **next message** (no restart).
+   model applies from your **next message** (no restart). From the CLI:
+   `ei provider use <model> [--reasoning none|minimal|low|medium|high|xhigh|max]`
+   — sets the reasoning-effort level injected into model calls
+   (`providerOptions.reasoningEffort`); `none` (default) sends nothing.
+   Only models that support reasoning honor it; others ignore the field.
 
 `/provider list` shows each provider's key status (set/unset), cached model
 counts by source, and marks the active one.
