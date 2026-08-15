@@ -11,6 +11,7 @@ test("planSetup renders a deterministic ordered plan", () => {
     "doppler project + config",
     "sync env to doppler",
     "bun install",
+    "postgres schema",
     "typecheck",
     "build:agent",
     "install sentrux",

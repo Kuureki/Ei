@@ -14,10 +14,11 @@ export type SetupAction =
   | "preflight"
   | "doppler-project"
   | "env-sync"
-  | "sentrux"
   | "install"
+  | "postgres-schema"
   | "typecheck"
   | "build"
+  | "sentrux"
   | "register"
   | "write-config"
   | "systemd"
@@ -38,6 +39,7 @@ export function planSetup(
     { label: "doppler project + config", action: "doppler-project" },
     { label: "sync env to doppler", action: "env-sync" },
     { label: "bun install", action: "install" },
+    { label: "postgres schema", action: "postgres-schema" },
     { label: "typecheck", action: "typecheck" },
     { label: "build:agent", action: "build" },
     { label: "install sentrux", action: "sentrux" },
@@ -51,7 +53,7 @@ export function planSetup(
   ];
 }
 
-function unitFile(cfg: EiConfig, user: string): string {
+function unitFile(cfg: EiConfig, user: string, bunBinDir: string): string {
   return `[Unit]
 Description=ei personal agent (eve + discord gateway)
 After=network-online.target
@@ -61,13 +63,27 @@ Wants=network-online.target
 Type=simple
 User=${user}
 WorkingDirectory=${cfg.checkoutPath}/packages/agent
-ExecStart=/usr/local/bin/doppler run --project ${cfg.dopplerProject} --config ${cfg.dopplerConfig} -- bunx eve start
+Environment=PATH=${bunBinDir}:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/local/bin/doppler run --project ${cfg.dopplerProject} --config ${cfg.dopplerConfig} -- ${bunBinDir}/bun x eve start
 Restart=on-failure
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 `;
+}
+
+async function resolveBunBinDir(): Promise<string> {
+  const r = await run(["sh", "-lc", "command -v bunx"]);
+  if (r.ok && r.stdout.trim()) return path.dirname(r.stdout.trim());
+  return "/root/.bun/bin";
+}
+
+// eve's CLI bin shebangs `#!/usr/bin/env node`; system node on most hosts is
+// <24 and eve rejects it. Point `node` at bun (which reports Node >=24) so the
+// shebang resolves inside the unit's PATH instead of /usr/bin.
+async function ensureNodeAlias(bunBinDir: string): Promise<void> {
+  await run(["ln", "-sf", "bun", path.join(bunBinDir, "node")]);
 }
 
 async function healthPoll(checkout: string, attempts = 30): Promise<boolean> {
@@ -141,6 +157,15 @@ export async function setup(cfg: EiConfig, flags: Record<string, string | boolea
           if (!r.ok) throw new Error(`bun install failed (${r.code})\n${r.stderr.slice(-2000)}`);
         });
         break;
+      case "postgres-schema":
+        await runStep(step.label, async () => {
+          const r = await run(
+            ["doppler", "run", "--project", cfg.dopplerProject, "--config", cfg.dopplerConfig, "--", "bunx", "--package", "@workflow/world-postgres", "bootstrap"],
+            { cwd: path.join(cfg.checkoutPath, "packages/agent") },
+          );
+          if (!r.ok) throw new Error(`postgres schema failed (${r.code})\n${r.stderr.slice(-2000)}`);
+        });
+        break;
       case "typecheck":
         await runStep(step.label, async () => {
           const r = await run(["bun", "run", "typecheck"], { cwd: cfg.checkoutPath });
@@ -176,17 +201,21 @@ export async function setup(cfg: EiConfig, flags: Record<string, string | boolea
       case "systemd": {
         const hasSystemd = Boolean(requireBin("systemctl"));
         if (!hasSystemd) {
-          plugStep(step.label, true, "run manually: doppler run --project " + cfg.dopplerProject + " --config " + cfg.dopplerConfig + " -- bunx eve start");
+          const bunBinDir = await resolveBunBinDir();
+          await ensureNodeAlias(bunBinDir);
+          plugStep(step.label, true, `run manually: doppler run --project ${cfg.dopplerProject} --config ${cfg.dopplerConfig} -- ${bunBinDir}/bun x eve start`);
           break;
         }
         const user = (await run(["whoami"])).stdout.trim();
+        const bunBinDir = await resolveBunBinDir();
+        await ensureNodeAlias(bunBinDir);
         const shouldInstall = await confirm(`Install/refresh systemd unit ${cfg.unitName} for user ${user}?`);
         if (shouldInstall === false) {
           plugStep(step.label, true, "skipped");
           break;
         }
         await runStep(step.label, async () => {
-          const unit = unitFile(cfg, user);
+          const unit = unitFile(cfg, user, bunBinDir);
           const tmp = path.join(cfg.checkoutPath, `.ei.${cfg.unitName}.service`);
           await Bun.write(tmp, unit);
           const write = await run(["sudo", "install", "-o", "root", "-g", "root", "-m", "644", tmp, `/etc/systemd/system/${cfg.unitName}.service`]);

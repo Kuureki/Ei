@@ -49,7 +49,10 @@ on `doppler setup` having written a scope file (a `.doppler` file would become
 the default for the whole checkout tree, shadowing other projects on the host).
 `ei setup` creates the project and config if they are missing, then prompts
 for every unset value it needs (secrets masked) and syncs them into Doppler
-before building. The agent saves keys itself: paste an API key into
+before building; it also runs the workflow world's schema bootstrap
+(`bunx --package @workflow/world-postgres bootstrap`) so the workflow tables
+exist in `WORKFLOW_POSTGRES_URL` before the agent starts. The agent saves keys
+itself: paste an API key into
 `/provider add` (Discord) and it writes the secret into Doppler under
 `doppler run`'s injected scope (`ei`/`prd`, or your `--config` override).
 
