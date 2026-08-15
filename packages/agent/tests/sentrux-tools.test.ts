@@ -1,11 +1,16 @@
 // tests/sentrux-tools.test.ts
 import { afterEach, describe, expect, test } from "bun:test";
 import path from "node:path";
-import {
-  sentruxCheckRules, sentruxDsm, sentruxGitStats, sentruxHealth, sentruxRescan,
-  sentruxScan, sentruxSessionEnd, sentruxSessionStart, sentruxTestGaps,
-  setSentruxToolsClientFactoryForTests,
-} from "../agent/tools/sentrux";
+import scan from "../agent/tools/sentrux/scan";
+import rescan from "../agent/tools/sentrux/rescan";
+import sessionStart from "../agent/tools/sentrux/session_start";
+import sessionEnd from "../agent/tools/sentrux/session_end";
+import health from "../agent/tools/sentrux/health";
+import checkRules from "../agent/tools/sentrux/check_rules";
+import gitStats from "../agent/tools/sentrux/git_stats";
+import dsm from "../agent/tools/sentrux/dsm";
+import testGaps from "../agent/tools/sentrux/test_gaps";
+import { setSentruxToolsClientFactoryForTests } from "../lib/sentrux-tools";
 import { SentruxMcpClient } from "../lib/sentrux-mcp";
 
 const FIXTURE = path.join(import.meta.dirname, "fixtures/fake-sentrux-mcp.cjs");
@@ -28,14 +33,14 @@ afterEach(async () => {
 describe("sentrux eve tools", () => {
   test("each tool maps to its MCP name and passes input", async () => {
     setSentruxToolsClientFactoryForTests(fakeFactory);
-    expect(await sentruxScan.execute({ path: "/repo" }, ctx)).toEqual({ scanned: "/repo", quality_signal: 7342, files: 3 });
-    expect(await sentruxHealth.execute({}, ctx)).toEqual({ tool: "health", arguments: {}, ok: true });
-    expect(await sentruxRescan.execute({}, ctx)).toEqual({ tool: "rescan", arguments: {}, ok: true });
-    expect(await sentruxSessionStart.execute({}, ctx)).toEqual({ tool: "session_start", arguments: {}, ok: true });
-    expect(await sentruxSessionEnd.execute({}, ctx)).toEqual({ tool: "session_end", arguments: {}, ok: true });
-    expect(await sentruxCheckRules.execute({}, ctx)).toEqual({ tool: "check_rules", arguments: {}, ok: true });
-    expect(await sentruxGitStats.execute({ days: 7 }, ctx)).toEqual({ tool: "git_stats", arguments: { days: 7 }, ok: true });
-    expect(await sentruxDsm.execute({ format: "stats" }, ctx)).toEqual({ tool: "dsm", arguments: { format: "stats" }, ok: true });
-    expect(await sentruxTestGaps.execute({ limit: 5 }, ctx)).toEqual({ tool: "test_gaps", arguments: { limit: 5 }, ok: true });
+    expect(await scan.execute({ path: "/repo" }, ctx)).toEqual({ scanned: "/repo", quality_signal: 7342, files: 3 });
+    expect(await health.execute({}, ctx)).toEqual({ tool: "health", arguments: {}, ok: true });
+    expect(await rescan.execute({}, ctx)).toEqual({ tool: "rescan", arguments: {}, ok: true });
+    expect(await sessionStart.execute({}, ctx)).toEqual({ tool: "session_start", arguments: {}, ok: true });
+    expect(await sessionEnd.execute({}, ctx)).toEqual({ tool: "session_end", arguments: {}, ok: true });
+    expect(await checkRules.execute({}, ctx)).toEqual({ tool: "check_rules", arguments: {}, ok: true });
+    expect(await gitStats.execute({ days: 7 }, ctx)).toEqual({ tool: "git_stats", arguments: { days: 7 }, ok: true });
+    expect(await dsm.execute({ format: "stats" }, ctx)).toEqual({ tool: "dsm", arguments: { format: "stats" }, ok: true });
+    expect(await testGaps.execute({ limit: 5 }, ctx)).toEqual({ tool: "test_gaps", arguments: { limit: 5 }, ok: true });
   });
 });
