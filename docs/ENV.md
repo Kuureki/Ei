@@ -44,10 +44,11 @@ Never commit values; the repo contains names only.
 The CLI always passes `--project ei --config prd` explicitly and never relies
 on `doppler setup` having written a scope file (a `.doppler` file would become
 the default for the whole checkout tree, shadowing other projects on the host).
-`ei setup` creates the project and config if they are missing. The agent saves
-keys itself: paste an API key into `/provider add` (Discord) and it writes the
-secret into Doppler with the scope above (`DOPPLER_PROJECT`/`DOPPLER_CONFIG`
-override the defaults).
+`ei setup` creates the project and config if they are missing, then prompts
+for every unset value it needs (secrets masked) and syncs them into Doppler
+before building. The agent saves keys itself: paste an API key into
+`/provider add` (Discord) and it writes the secret into Doppler with the scope
+above (`DOPPLER_PROJECT`/`DOPPLER_CONFIG` override the defaults).
 
 - `ei setup` (creates/verifies project `ei`, config `prd`, and authenticates)
 - `doppler run --project ei --config prd -- bun run --cwd packages/agent dev`

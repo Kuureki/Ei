@@ -8,10 +8,12 @@ import { runStep, plugStep } from "../ui/step";
 import { confirm } from "../ui/prompts";
 import { errorCard, card } from "../ui/card";
 import { theme } from "../ui/theme";
+import { defaultEnvSyncDeps, syncEnv } from "../env-sync";
 
 export type SetupAction =
   | "preflight"
   | "doppler-project"
+  | "env-sync"
   | "sentrux"
   | "install"
   | "typecheck"
@@ -34,6 +36,7 @@ export function planSetup(
   return [
     { label: "Preflight", action: "preflight" },
     { label: "doppler project + config", action: "doppler-project" },
+    { label: "sync env to doppler", action: "env-sync" },
     { label: "bun install", action: "install" },
     { label: "typecheck", action: "typecheck" },
     { label: "build:agent", action: "build" },
@@ -122,6 +125,14 @@ export async function setup(cfg: EiConfig, flags: Record<string, string | boolea
             if (!created.ok) throw new Error(`doppler configs create failed (${created.code})\n${created.stderr.slice(-1000)}`);
           }
         });
+        break;
+      }
+      case "env-sync": {
+        let summary = { set: [] as string[], skipped: [] as string[] };
+        await runStep(step.label, async () => {
+          summary = await syncEnv(cfg, defaultEnvSyncDeps(cfg));
+        });
+        process.stdout.write(theme.dim(`  set: ${summary.set.join(", ")} · skipped: ${summary.skipped.join(", ") || "—"}\n`));
         break;
       }
       case "install":

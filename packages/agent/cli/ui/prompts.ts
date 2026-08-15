@@ -1,5 +1,5 @@
 // cli/ui/prompts.ts
-import { confirm as cConfirm, isCancel, select as cSelect, text as cText, type Option } from "@clack/prompts";
+import { confirm as cConfirm, isCancel, password as cPassword, select as cSelect, text as cText, type Option } from "@clack/prompts";
 
 function interactive(): boolean {
   return Boolean(process.stdout.isTTY) && Boolean(process.stdin.isTTY);
@@ -24,5 +24,11 @@ export async function select<T extends string>(
 export async function text(message: string, placeholder?: string, initial?: string): Promise<string | null> {
   if (!interactive()) return initial ?? "";
   const r = await cText({ message, placeholder, initialValue: initial });
+  return isCancel(r) ? null : r;
+}
+
+export async function secretText(message: string, _placeholder?: string, initial?: string): Promise<string | null> {
+  if (!interactive()) return initial ?? "";
+  const r = await cPassword({ message, mask: "*" });
   return isCancel(r) ? null : r;
 }

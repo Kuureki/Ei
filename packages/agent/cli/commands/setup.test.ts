@@ -9,6 +9,7 @@ test("planSetup renders a deterministic ordered plan", () => {
   expect(plan.map((s) => s.label)).toEqual([
     "Preflight",
     "doppler project + config",
+    "sync env to doppler",
     "bun install",
     "typecheck",
     "build:agent",
