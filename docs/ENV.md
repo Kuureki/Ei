@@ -73,11 +73,9 @@ It shells to `doppler`, `git`, `bun`, `systemctl`, and (for the unit steps)
 - `EI_INSTALL_DIR` — override `install.sh`'s prefix (default `/usr/local/bin` via sudo, else `~/.local/bin`).
 - `EI_VERSION` — pin a release tag in `install.sh` (default: latest).
 
-## Sentrux improve loop
+## Improve loop
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SENTRUX_PATH` | `/usr/local/bin/sentrux` | Explicit path to the `sentrux` binary (skips auto-install; the agent installs it on first use otherwise). |
 | `EI_AGENT_ROOT` | `/` | Root the host (unsandboxed) sandbox works from. Relative paths in agent file tools resolve here. |
 | `EI_IMPROVE_MAX_ROUNDS` | `8` | Hard cap on improve-loop rounds (read by the agent via the environment). |
-| `EI_IMPROVE_TARGET` | — | Optional quality-signal target (0–10000) that ends the improve loop early. |

@@ -267,18 +267,17 @@ Two authored schedules watch the jobs you've scheduled in Discord:
 
 Ask "what's broken?" in Discord and the agent reports from the issue state.
 
-## Improve loop (sentrux)
+## Improve loop
 
 Ask the agent to improve any git repo on the VPS ("improve /path/to/repo").
-It installs the [sentrux](https://github.com/sentrux/sentrux) sensor on
-first use, scans the repo through sentrux's MCP server (in-process, stdio),
-then runs a bounded loop: plan a small refactor targeting the worst root
-cause (modularity, acyclicity, depth, equality, redundancy), edit with the
-host-backed file/shell tools, rescan, keep-or-revert, and commit each kept
-change. It stops at the target score, two flat rounds, or
-`EI_IMPROVE_MAX_ROUNDS` (default 8), then commits (and pushes, never force)
-and reports the before/after signal in Discord. The agent is unsandboxed by
-design: it has root access to the whole VPS from `EI_AGENT_ROOT` (`/`).
+It runs a bounded loop: review the code, run the project's own checks
+(tests, typecheck, lint) plus the `code_duplicates` tool (jscpd) for
+copy-paste hotspots, make a small slice of edits, keep-or-revert based on
+the checks, and commit each kept change. It stops after two rounds with no
+improvement, two reverted slices, or `EI_IMPROVE_MAX_ROUNDS` (default 8),
+then pushes (never force) and reports what changed in Discord. The agent is
+unsandboxed by design: it has root access to the whole VPS from
+`EI_AGENT_ROOT` (`/`).
 
 ## Evals
 

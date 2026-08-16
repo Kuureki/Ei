@@ -3,7 +3,6 @@ import path from "node:path";
 import type { EiConfig } from "../config";
 import { writeConfig } from "../config";
 import { run, runInteractive, requireBin } from "../run";
-import { ensureSentrux } from "../../lib/sentrux";
 import { runStep, plugStep } from "../ui/step";
 import { confirm } from "../ui/prompts";
 import { errorCard, card } from "../ui/card";
@@ -18,7 +17,6 @@ export type SetupAction =
   | "postgres-schema"
   | "typecheck"
   | "build"
-  | "sentrux"
   | "register"
   | "write-config"
   | "systemd"
@@ -42,7 +40,6 @@ export function planSetup(
     { label: "postgres schema", action: "postgres-schema" },
     { label: "typecheck", action: "typecheck" },
     { label: "build:agent", action: "build" },
-    { label: "install sentrux", action: "sentrux" },
     { label: "register-commands", action: "register" },
     { label: "write config", action: "write-config" },
     {
@@ -182,16 +179,6 @@ export async function setup(cfg: EiConfig, flags: Record<string, string | boolea
         await runStep(step.label, async () => {
           const r = await run(["doppler", "run", "--project", cfg.dopplerProject, "--config", cfg.dopplerConfig, "--", "bun", "scripts/register-commands.ts"], { cwd: cfg.checkoutPath });
           if (!r.ok) throw new Error(`register-commands failed (${r.code})\n${r.stderr.slice(-2000)}`);
-        });
-        break;
-      case "sentrux":
-        await runStep(step.label, async () => {
-          try {
-            const bin = await ensureSentrux();
-            if (!bin) throw new Error("sentrux install produced no binary");
-          } catch (err) {
-            throw new Error(`sentrux install failed: ${(err as Error).message}`);
-          }
         });
         break;
       case "write-config":
